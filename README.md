@@ -163,6 +163,22 @@ sudo chmod 4755 ~/.local/share/cef/chrome-sandbox
 
 (CEF will refuse to start without this.)
 
+
+#### NixOS
+
+Enter the dev-shell
+
+```bash
+nix develop
+```
+
+Run this (ONCE) to create the shared linked CEF directory:
+
+```bash
+setup-cef
+```
+
+
 ### macOS (experimental)
 
 ```sh
