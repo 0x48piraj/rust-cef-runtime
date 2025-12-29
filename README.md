@@ -183,59 +183,123 @@ Run all build commands from a MSVC environment, then launch PowerShell from ther
 
 (CEF will refuse to start if **Ninja** is not available in environment.)
 
-## Running the demo
+## Running the examples
+
+### Default GPU demo (recommended)
 
 ```bash
 cargo run --example demo
 ```
 
-This launches a native window with GPU-rendered canvas demo for accurate benchmarks.
+Launches a native window rendering a **canvas-based animation** designed to accurately reflect GPU-backed rendering performance.
 
-### More demos! (not benchmarks)
+> This is the **primary demo** for evaluating rendering behavior and performance.
+
+### DOM-based demos (educational)
+
+These examples demonstrate **DOM animation limits** and are **not intended as performance benchmarks**.
 
 ```bash
 cargo run --example dom_single
 cargo run --example dom_multi
+```
+
+Use these to understand:
+
+* Main-thread vs compositor behavior
+* CPU-bound DOM animation costs
+* Why Canvas/WebGL are preferred for high-frequency rendering
+
+### Development server (any example)
+
+Override the frontend with a live dev server (useful for hot reload):
+
+```bash
+CEF_START_URL=http://localhost:5173 cargo run --example demo
+```
+
+or
+
+```bash
 cargo run --example server
 ```
 
+### Custom frontend directory
 
-### Dev server override (any example)
-
-```bash
-export CEF_DEV_URL=http://localhost:1420
-cargo run --example demo
-```
-
-### Custom frontend path
+Load a custom frontend directly from disk:
 
 ```bash
-export CEF_APP_PATH=/absolute/path/to/frontend
-cargo run --example demo
+CEF_APP_PATH=/abs/path/to/frontend cargo run --example demo
 ```
 
-## Development mode
+The runtime will load `index.html` from the specified directory.
 
-To use a live dev server:
+## Vite-based frontend example
+
+This repository includes a **Vite-built frontend example** used to validate real-world asset loading, module resolution, and import behavior under the custom `app://` scheme.
+
+### Purpose
+
+The Vite example is intentionally minimal, but it exercises features that often break in embedded Chromium runtimes:
+
+* ES module loading
+* CSS imports
+* Static assets (SVG, images, text, etc.)
+* Cross-file imports (`?raw`, nested assets)
+* Same-origin behavior under a custom scheme
+
+This makes it a good **integration test** for the runtime rather than a visual demo.
+
+### Location
+
+* Source: `tests/files-cors`
+* Build output: `examples/files-cors`
+
+### Building the frontend
+
+From the project root:
 
 ```bash
-export CEF_DEV_URL=http://localhost:1420
+cd tests/files-cors
+bun install
+bun run build
 ```
 
-The Rust binary remains unchanged; only the frontend swaps.
+This produces a production-ready build in:
 
-## Testing
+```text
+examples/files-cors/
+```
 
-- `tests/files-cors` contains a minimal Vite based web-app to test extra imported files. 
-  `bun install && bun run build` will output the built `dist` into `examples/files-cors` so you can run it using `cargo run --example files-cors`.
+### Running the example
 
+Once built, run it via:
+
+```bash
+cargo run --example files-cors
+```
+
+The runtime will load the built `index.html` using the `app://app/` scheme and serve all assets through the custom CEF resource handler.
+
+> **Note**: This example uses a production Vite build (`vite build`), not the Vite dev server. Dev server usage is supported separately via `CEF_START_URL`.
 
 ## 🚧 Current status
 
-✅ Windowed Chromium app<br>
-✅ Local asset loading<br>
-✅ GPU acceleration<br>
-🔜 Native IPC support<br>
-🔜 Packaging helpers<br>
-🔜 Template generator<br>
-🔜 CI examples<br>
+**Implemented**
+
+✅ Cross-platform CEF-based runtime (Rust-native)<br>
+✅ Native window creation and lifecycle management<br>
+✅ GPU-accelerated rendering via Chromium<br>
+✅ File-based and dev-server frontend loading<br>
+✅ Linux, Windows, and macOS support (platform-specific init where required)<br>
+✅ Modular runtime architecture suitable for reuse<br>
+
+**In progress / planned**
+
+🔜 Native JS <-> Rust IPC (CEF message router / `cefQuery`)<br>
+🔜 Examples gallery (Canvas, DOM, WebGL, WASM)<br>
+🔜 Packaging & distribution helpers<br>
+🔜 CI builds and example verification<br>
+🔜 Nominal project scaffolding / starter layout<br>
+
+> *Features are added incrementally. Stability and correctness take priority over convenience abstractions.*

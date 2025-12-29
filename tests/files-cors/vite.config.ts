@@ -2,7 +2,7 @@ import { defineConfig } from "vite";
 
 // https://vite.dev/config/
 export default defineConfig({
-	base: "",
+	base: "app://app/",
 	build: {
 		outDir: "../../examples/files-cors",
 	},
