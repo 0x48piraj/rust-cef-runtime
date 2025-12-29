@@ -1,9 +1,9 @@
-//! Frontend URL resolution for examples.
+//! Frontend resolution helpers for examples.
 
 use cef::CefString;
 use std::path::PathBuf;
 
-/// Resolves the frontend application to load.
+/// Resolve the frontend entrypoint.
 ///
 /// Priority:
 /// 1. CEF_DEV_URL (live dev server)
@@ -22,21 +22,25 @@ pub fn resolve(default_example: &str) -> CefString {
 
     // Cargo dev: use project root
     if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
-        let html = PathBuf::from(manifest_dir)
-            .join(app_path)
-            .join("index.html");
-
-        if html.exists() {
-            return CefString::from(
-                format!("file://{}", html.display()).as_str()
-            );
+        let dir = PathBuf::from(manifest_dir).join(app_path);
+        
+        if dir.join("index.html").exists() {
+            // Set CWD to frontend directory
+            std::env::set_current_dir(&dir)
+                .expect("Failed to set working directory to frontend");
+            
+            return CefString::from("app://app/index.html");
         }
     }
 
     // Release: assets next to executable
     let exe = std::env::current_exe().unwrap();
-    let dir = exe.parent().unwrap();
-    let html = dir.join("assets").join("index.html");
+    let dir = exe.parent().unwrap().join("assets");
+    
+    if dir.join("index.html").exists() {
+        std::env::set_current_dir(&dir)
+            .expect("Failed to set working directory to assets");
+    }
 
-    CefString::from(format!("file://{}", html.display()).as_str())
+    CefString::from("app://app/index.html")
 }
