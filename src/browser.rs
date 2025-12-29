@@ -14,8 +14,22 @@ wrap_browser_process_handler! {
 
     impl BrowserProcessHandler {
         fn on_context_initialized(&self) {
+            println!("on_context_initialized called");
+            println!("Registering scheme handler factory for app://");
+            
+            // Register the scheme handler factory for app:// URLs
+            let result = register_scheme_handler_factory(
+                Some(&CefString::from("app")),
+                Some(&CefString::from("app")),
+                Some(&mut crate::scheme::AppSchemeHandlerFactory::new()),
+            );
+
+            println!("register_scheme_handler_factory result: {}", result);
+
             let mut client = DemoClient::new();
             let url = self.start_url.clone();
+            
+            println!("Creating browser with URL: {}", url.to_string());
 
             let browser_view = browser_view_create(
                 Some(&mut client),

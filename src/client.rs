@@ -5,5 +5,8 @@ use cef::rc::*;
 
 wrap_client! {
     pub struct DemoClient;
-    impl Client {}
+
+    impl Client {
+        // Scheme handler factory handles all app:// requests
+    }
 }

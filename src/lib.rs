@@ -12,6 +12,7 @@ mod app;
 mod browser;
 mod window;
 mod client;
+mod scheme;
 
 #[cfg(target_os = "macos")]
 mod platform;
