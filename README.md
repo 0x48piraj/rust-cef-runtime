@@ -211,6 +211,48 @@ Launches a native window rendering a **canvas-based animation** designed to accu
 
 > This is the **primary demo** for evaluating rendering behavior and performance.
 
+## WASM demo
+
+This project includes a **pure WebAssembly demo** that mirrors the canvas animation example, but moves the **simulation logic into a standalone WASM module**.
+
+### What this demo demonstrates
+
+* Loading raw `.wasm` binaries via the custom `app://app/` scheme
+* JS <-> WASM interop without `wasm-bindgen`
+* Canvas rendering driven by WASM logic
+* Zero Rust WASM tooling baked into the runtime
+
+> The demo includes both the Rust source and the compiled `.wasm` for reference. In real applications, only the compiled `.wasm` would typically be shipped.
+
+### Building the WASM module
+
+From the demo directory:
+
+```bash
+rustc \
+  --target wasm32-unknown-unknown \
+  -O \
+  --crate-type=cdylib \
+  demo.rs \
+  -o demo.wasm
+```
+
+This produces a standalone `demo.wasm` suitable for direct loading via `fetch()`.
+
+**Note:**
+
+The `wasm32-unknown-unknown` target must be installed:
+
+```bash
+rustup target add wasm32-unknown-unknown
+```
+
+Once the `.wasm` file is present alongside `index.html`:
+
+```bash
+cargo run --example wasm
+```
+
 ### DOM-based demos (educational)
 
 These examples demonstrate **DOM animation limits** and are **not intended as performance benchmarks**.
@@ -312,7 +354,10 @@ Place your built frontend in an `content/` directory next to the executable:
 ### Example (`package.rs`)
 
 ```rust
-Runtime::run(CefString::from("app://app/content/index.html"));
+std::env::set_current_dir(&frontend_root)
+    .expect("Failed to set frontend root directory");
+
+Runtime::run(CefString::from("app://app/index.html"));
 ```
 
 You can run:
