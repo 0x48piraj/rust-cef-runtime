@@ -59,24 +59,25 @@ Using Chromium directly solves the rendering problem, but existing options have 
 
 ## How `rust-cef-runtime` compares with the giants
 
-| Capability                   | **rust-cef-runtime**                             | **Tauri (WebView2 / WKWebView)** | **Electron**     |
+| Capability                   | **rust-cef-runtime**                             | **Tauri**                        | **Electron**     |
 | ---------------------------- | ------------------------------------------------ | -------------------------------- | ---------------- |
 | Rendering engine             | Chromium                                         | OS WebView                       | Chromium         |
 | GPU pipeline                 | Chromium                                         | OS-managed                       | Chromium         |
 | VSync control                | **Uncapped on Windows, Linux**                   | OS-locked                        | OS-locked        |
 | High-FPS rendering           | **Yes**                                          | Limited                          | Limited          |
-| Cross-platform consistency   | **Yes**                                          | No                               | Yes              |
+| Cross-platform consistency   | Yes                                              | No                               | Yes              |
 | Engine-level control         | **Complete**                                     | No                               | Partial          |
 | IPC model                    | **Native (CEF / Rust)**                          | JS <-> Rust                      | JS <-> Node      |
 | Binary size                  | Compact                                          | **Small**                        | Large            |
 | Runtime dependency           | **None**                                         | Tauri runtime                    | Electron runtime |
 | Sandbox control              | **Explicit**                                     | OS-defined                       | Limited          |
 | Linux GPU reliability        | **Excellent**                                    | VSync-locked (`WebViewGTK`)      | Good             |
-| macOS GPU control            | **Untested**                                     | OS-restricted                    | Good             |
+| macOS GPU control            | **Untested**                                     | OS-restricted (`WKWebView`)      | Good             |
 | Windows GPU stack            | **Excellent**                                    | **Best-in-class**                | Great            |
 | Open source                  | Yes                                              | Yes                              | Yes              |
-| Opinionated framework        | No                                               | Yes                              | Yes              |
+| Opinionated framework        | **No**                                           | Yes                              | Yes              |
 
+> Note: Actual frame pacing depends on GPU drivers and compositor behavior, but the runtime does not enforce OS-level vsync caps like system WebViews.
 
 ## What this project optimizes for
 
@@ -97,10 +98,10 @@ It exists for cases where **engine-level control and rendering behavior matter m
 
 ## When you should *not* use this project
 
-* If you want the smallest possible binary: **probably use Tauri**
+* If you want the smallest possible binary: **use Tauri**
 * If your app is standard CRUD UI: use **Tauri or Electron**
 * If you want Node.js APIs: **use Electron**
-* If you want maximum native OS integration **with minimal effort**: **use Tauri**
+* If you want native OS integration with minimal effort: **use Tauri**
 
 ## Architecture overview
 
@@ -109,7 +110,7 @@ Rust (CEF)
  ├─ App lifecycle (cef::App)
  ├─ BrowserProcessHandler
  ├─ Native window + browser_view
- ├─ JS <-> Rust IPC (cefQuery)
+ ├─ JS <-> Rust IPC (cefQuery) (planned)
  └─ Asset loading (file:// or dev server)
 
 HTML / CSS / JS
@@ -178,7 +179,6 @@ Run this (ONCE) to create the shared linked CEF directory:
 setup-cef
 ```
 
-
 ### macOS (experimental)
 
 ```sh
@@ -209,13 +209,19 @@ cargo run --example demo
 
 Launches a native window rendering a **canvas-based animation** designed to accurately reflect GPU-backed rendering performance.
 
-> This is the **primary demo** for evaluating rendering behavior and performance.
+This is the **primary demo** for evaluating rendering behavior and performance.
 
-## WASM demo
+> **Windows rendering note**
+>
+> On Windows, rendering behavior is strongly influenced by how Chromium is deployed. WebView-based solutions (such as Tauri on Windows) inherit Chrome's browser-integrated GPU pipelines, including accelerated Canvas2D and a fully sandboxed GPU subprocess, which enables WebGL2. Electron similarly ships dedicated Chromium helper processes that unlock these GPU features.
+>
+> `rust-cef-runtime` currently prioritizes a **single-binary CEF architecture**, which trades those browser-level privileges for explicit lifecycle control and simpler distribution. As a result, Canvas2D benchmarks on Windows tend to favor WebView-based solutions, and WebGL2 availability is constrained. These limitations are architectural rather than performance regressions, and do not apply on Linux, where full GPU acceleration and WebGL2 are available.
+
+### WASM demo
 
 This project includes a **pure WebAssembly demo** that mirrors the canvas animation example, but moves the **simulation logic into a standalone WASM module**.
 
-### What this demo demonstrates
+#### What this demo demonstrates
 
 * Loading raw `.wasm` binaries via the custom `app://app/` scheme
 * JS <-> WASM interop without `wasm-bindgen`
@@ -224,7 +230,7 @@ This project includes a **pure WebAssembly demo** that mirrors the canvas animat
 
 > The demo includes both the Rust source and the compiled `.wasm` for reference. In real applications, only the compiled `.wasm` would typically be shipped.
 
-### Building the WASM module
+#### Building the WASM module
 
 From the demo directory:
 
@@ -253,20 +259,19 @@ Once the `.wasm` file is present alongside `index.html`:
 cargo run --example wasm
 ```
 
-### DOM-based demos (educational)
+### DOM-based educational demos
 
-These examples demonstrate **DOM animation limits** and are **not intended as performance benchmarks**.
+The example demonstrate **DOM animation limits** and are **not intended as performance benchmarks**.
 
 ```bash
-cargo run --example dom_single
-cargo run --example dom_multi
+cargo run --example dom
 ```
 
 Use these to understand:
 
 * Main-thread vs compositor behavior
 * CPU-bound DOM animation costs
-* Why Canvas/WebGL are preferred for high-frequency rendering
+* Why WebGL/Canvas2D are preferred for high-frequency rendering
 
 ### Development server (any example)
 

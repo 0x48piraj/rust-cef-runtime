@@ -5,6 +5,6 @@ mod common {
 }
 
 fn main() {
-    let url = common::frontend::resolve("dom-single");
+    let url = common::frontend::resolve("dom");
     Runtime::run(url);
 }
