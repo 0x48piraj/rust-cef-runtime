@@ -1,52 +1,94 @@
 const canvas = document.getElementById("canvas");
-const ctx = canvas.getContext("2d");
+const ctx = canvas.getContext("2d", { alpha: false });
 const fpsEl = document.getElementById("fps");
 
 function resize() {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = innerWidth * dpr;
+  canvas.height = innerHeight * dpr;
+  canvas.style.width = innerWidth + "px";
+  canvas.style.height = innerHeight + "px";
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
-window.addEventListener("resize", resize);
+addEventListener("resize", resize);
 resize();
 
-const BOX_COUNT = 1000; // more boxes, more fun
-const SIZE = 16;
+let COUNT = 5000; // more boxes, more fun
+const SIZE = 6;
 
-const boxes = Array.from({ length: BOX_COUNT }, () => ({
-  x: Math.random() * canvas.width,
-  y: Math.random() * canvas.height,
-  vx: Math.random() * 4 - 2, // speed [-2, +2)
-  vy: Math.random() * 4 - 2,
-  color: `hsl(${Math.random() * 360}, 70%, 60%)`
-}));
+// cache-friendly structure-of-arrays
+const x  = new Float32Array(COUNT);
+const y  = new Float32Array(COUNT);
+const vx = new Float32Array(COUNT);
+const vy = new Float32Array(COUNT);
+const hue = new Float32Array(COUNT);
 
-let lastTime = performance.now();
+for (let i = 0; i < COUNT; i++) {
+  x[i] = Math.random() * canvas.width;
+  y[i] = Math.random() * canvas.height;
+  vx[i] = Math.random() * 2 - 1; // speed [-1, +1)
+  vy[i] = Math.random() * 2 - 1;
+  hue[i] = Math.random() * 360;
+}
+
+let last = performance.now();
 let frames = 0;
+let avgDt = 0;
 
 function frame(time) {
   frames++;
 
-  if (time - lastTime >= 1000) {
-    fpsEl.textContent = `FPS: ${frames}`;
-    frames = 0;
-    lastTime = time;
+  const dt = time - last;
+  last = time;
+  avgDt = avgDt * 0.9 + dt * 0.1;
+
+  if (frames % 30 === 0) {
+    fpsEl.textContent =
+      `Instances: ${COUNT.toLocaleString()} | ` +
+      `FPS: ${(1000 / avgDt).toFixed(1)} | ` +
+      `Δ ${avgDt.toFixed(2)}ms`;
   }
 
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  // trail fade instead of full clear (cheaper)
+  ctx.fillStyle = "rgba(5, 8, 20, 0.25)";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  for (const b of boxes) {
-    b.x += b.vx;
-    b.y += b.vy;
+  // batch by hue bands (reduces fillStyle changes)
+  for (let band = 0; band < 6; band++) {
+    ctx.fillStyle = `hsl(${band * 60}, 80%, 60%)`;
 
-    // bounce off edges
-    if (b.x < 0 || b.x > canvas.width) b.vx *= -1;
-    if (b.y < 0 || b.y > canvas.height) b.vy *= -1;
+    for (let i = band; i < COUNT; i += 6) {
+      let nx = x[i] + vx[i];
+      let ny = y[i] + vy[i];
 
-    ctx.fillStyle = b.color;
-    ctx.fillRect(b.x, b.y, SIZE, SIZE);
+      // bounce off edges
+      if (nx < 0 || nx > canvas.width)  vx[i] *= -1;
+      if (ny < 0 || ny > canvas.height) vy[i] *= -1;
+
+      x[i] += vx[i];
+      y[i] += vy[i];
+
+      ctx.fillRect(x[i], y[i], SIZE, SIZE);
+    }
   }
 
   requestAnimationFrame(frame);
 }
 
 requestAnimationFrame(frame);
+
+// controls
+addEventListener("keydown", e => {
+  if (e.code === "Equal" || e.code === "NumpadAdd") {
+    COUNT = Math.min(COUNT * 2, 100_000);
+    buildInstances?.();
+  }
+
+  if (
+    (e.code === "Minus" || e.code === "NumpadSubtract") &&
+    COUNT > 1000
+  ) {
+    COUNT >>= 1;
+    buildInstances?.();
+  }
+});
