@@ -23,11 +23,6 @@ impl Runtime {
         let _ = api_hash(sys::CEF_API_VERSION_LAST, 0);
 
         let args = Args::new();
-        let cmd = args.as_cmd_line().unwrap();
-
-        // Determines whether this process is the main browser process
-        let switch = CefString::from("type");
-        let is_browser_process = cmd.has_switch(Some(&switch)) != 1;
 
         let window = Arc::new(Mutex::new(None));
         let mut app = DemoApp::new(window.clone(), start_url);
@@ -39,14 +34,17 @@ impl Runtime {
         );
 
         // Subprocesses exit immediately
-        if !is_browser_process {
-            return;
+        if ret >= 0 {
+            std::process::exit(ret);
         }
 
-        assert!(ret == -1);
+        let exe = std::env::current_exe()
+            .expect("failed to get current exe path");
+        let exe_str = exe.to_string_lossy();
 
         let settings = Settings {
             no_sandbox: 1,
+            browser_subprocess_path: CefString::from(exe_str.as_ref()),
             ..Default::default()
         };
 
