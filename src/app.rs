@@ -16,41 +16,46 @@ wrap_app! {
     impl App {
         fn on_before_command_line_processing(
             &self,
-            _process_type: Option<&CefString>,
+            process_type: Option<&CefString>,
             command_line: Option<&mut CommandLine>,
         ) {
-            if let Some(cmd) = command_line {
-                // Configure GPU and rendering backend per platform.
-                // Uses native compositing paths (D3D11/ANGLE, GL and Metal)
-                // to align with defaults instead of forcing generic GPU flags.
+            if process_type.is_some() {
+                // Only configure the main browser process
+                return;
+            }
 
-                #[cfg(target_os="windows")]
-                {
-                    // Hardware compositing
-                    cmd.append_switch(Some(&CefString::from("enable-direct-composition")));
+            let Some(cmd) = command_line else { return };
 
-                    // Match Chrome default ANGLE path
-                    cmd.append_switch_with_value(
-                        Some(&CefString::from("use-angle")),
-                        Some(&CefString::from("d3d11")),
-                    );
+            // Configure GPU and rendering backend per platform.
+            // Uses native compositing paths (D3D11/ANGLE, GL and Metal)
+            // to align with defaults instead of forcing generic GPU flags.
 
-                    // Sandbox disable (Windows CEF requirement)
-                    cmd.append_switch(Some(&CefString::from("no-sandbox")));
-                    cmd.append_switch(Some(&CefString::from("disable-gpu-sandbox")));
-                    cmd.append_switch(Some(&CefString::from("disable-setuid-sandbox")));
-                }
+            #[cfg(target_os="windows")]
+            {
+                // Hardware compositing
+                cmd.append_switch(Some(&CefString::from("enable-direct-composition")));
 
-                #[cfg(target_os="linux")]
-                {
-                    cmd.append_switch(Some(&CefString::from("use-gl=desktop")));
-                    cmd.append_switch(Some(&CefString::from("enable-gpu-rasterization")));
-                }
+                // Match Chrome default ANGLE path
+                cmd.append_switch_with_value(
+                    Some(&CefString::from("use-angle")),
+                    Some(&CefString::from("d3d11")),
+                );
 
-                #[cfg(target_os="macos")]
-                {
-                    cmd.append_switch(Some(&CefString::from("enable-metal")));
-                }
+                // Sandbox disable
+                cmd.append_switch(Some(&CefString::from("no-sandbox")));
+                cmd.append_switch(Some(&CefString::from("disable-gpu-sandbox")));
+                cmd.append_switch(Some(&CefString::from("disable-setuid-sandbox")));
+            }
+
+            #[cfg(target_os="linux")]
+            {
+                cmd.append_switch(Some(&CefString::from("use-gl=desktop")));
+                cmd.append_switch(Some(&CefString::from("enable-gpu-rasterization")));
+            }
+
+            #[cfg(target_os="macos")]
+            {
+                cmd.append_switch(Some(&CefString::from("enable-metal")));
             }
         }
 
@@ -65,6 +70,8 @@ wrap_app! {
             let flags =
                 CEF_SCHEME_OPTION_STANDARD as i32 |
                 CEF_SCHEME_OPTION_SECURE as i32 |
+                CEF_SCHEME_OPTION_LOCAL as i32 |
+                CEF_SCHEME_OPTION_DISPLAY_ISOLATED as i32 |
                 CEF_SCHEME_OPTION_CORS_ENABLED as i32 |
                 CEF_SCHEME_OPTION_FETCH_ENABLED as i32;
 
