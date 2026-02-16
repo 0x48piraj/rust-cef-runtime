@@ -2,7 +2,7 @@
 
 use cef::*;
 use cef::rc::*;
-use std::cell::RefCell; // <<--- added
+use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 
 use crate::{client::DemoClient, window::DemoWindowDelegate};
@@ -20,6 +20,12 @@ wrap_browser_process_handler! {
     impl BrowserProcessHandler {
         fn on_context_initialized(&self) {
             println!("on_context_initialized called");
+
+            // Register once per request context
+            if self.scheme_factory.borrow().is_some() {
+                return;
+            }
+
             println!("Registering scheme handler factory for app://");
 
             // create factory (temporary mutable)
