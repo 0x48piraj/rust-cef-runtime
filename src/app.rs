@@ -81,6 +81,7 @@ wrap_app! {
                 DemoBrowserProcessHandler::new(
                     self.window.clone(),
                     self.start_url.clone(),
+                    std::cell::RefCell::new(None),
                 )
             )
         }

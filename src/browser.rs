@@ -2,6 +2,7 @@
 
 use cef::*;
 use cef::rc::*;
+use std::cell::RefCell; // <<--- added
 use std::sync::{Arc, Mutex};
 
 use crate::{client::DemoClient, window::DemoWindowDelegate};
@@ -10,25 +11,34 @@ wrap_browser_process_handler! {
     pub struct DemoBrowserProcessHandler {
         window: Arc<Mutex<Option<Window>>>,
         start_url: CefString,
+
+        // Keep factory alive for browser lifetime; RefCell for interior mutability
+        scheme_factory: RefCell<Option<SchemeHandlerFactory>>,
     }
 
     impl BrowserProcessHandler {
         fn on_context_initialized(&self) {
             println!("on_context_initialized called");
             println!("Registering scheme handler factory for app://");
-            
+
+            // create factory (temporary mutable)
+            let mut factory = crate::scheme::AppSchemeHandlerFactory::new();
+
             // Register the scheme handler factory for app:// URLs
             let result = register_scheme_handler_factory(
                 Some(&CefString::from("app")),
                 Some(&CefString::from("app")),
-                Some(&mut crate::scheme::AppSchemeHandlerFactory::new()),
+                Some(&mut factory),
             );
+
+            // store so CEF never calls freed memory
+            *self.scheme_factory.borrow_mut() = Some(factory);
 
             println!("register_scheme_handler_factory result: {}", result);
 
             let mut client = DemoClient::new();
             let url = self.start_url.clone();
-            
+
             println!("Creating browser with URL: {}", url.to_string());
 
             let browser_view = browser_view_create(
