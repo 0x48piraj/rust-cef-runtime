@@ -20,13 +20,37 @@ wrap_app! {
             command_line: Option<&mut CommandLine>,
         ) {
             if let Some(cmd) = command_line {
-                // Enable GPU-backed rendering paths.
-                // These flags allow Chromium to use hardware acceleration for WebGL,
-                // rasterization, and video decode where supported. GPU availability
-                // depends on platform and process architecture (see documentation).
-                cmd.append_switch(Some(&CefString::from("enable-gpu")));
-                cmd.append_switch(Some(&CefString::from("enable-webgl")));
-                cmd.append_switch(Some(&CefString::from("ignore-gpu-blocklist")));
+                // Configure GPU and rendering backend per platform.
+                // Uses native compositing paths (D3D11/ANGLE, GL and Metal)
+                // to align with defaults instead of forcing generic GPU flags.
+
+                #[cfg(target_os="windows")]
+                {
+                    // Hardware compositing
+                    cmd.append_switch(Some(&CefString::from("enable-direct-composition")));
+
+                    // Match Chrome default ANGLE path
+                    cmd.append_switch_with_value(
+                        Some(&CefString::from("use-angle")),
+                        Some(&CefString::from("d3d11")),
+                    );
+
+                    // Sandbox disable (Windows CEF requirement)
+                    cmd.append_switch(Some(&CefString::from("no-sandbox")));
+                    cmd.append_switch(Some(&CefString::from("disable-gpu-sandbox")));
+                    cmd.append_switch(Some(&CefString::from("disable-setuid-sandbox")));
+                }
+
+                #[cfg(target_os="linux")]
+                {
+                    cmd.append_switch(Some(&CefString::from("use-gl=desktop")));
+                    cmd.append_switch(Some(&CefString::from("enable-gpu-rasterization")));
+                }
+
+                #[cfg(target_os="macos")]
+                {
+                    cmd.append_switch(Some(&CefString::from("enable-metal")));
+                }
             }
         }
 
