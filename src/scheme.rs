@@ -76,9 +76,14 @@ wrap_resource_handler! {
             println!("Resolved path: {}", path);
 
             // Resolve relative to CWD (set by frontend resolver)
-            let full_path = std::env::current_dir()
-                .unwrap()
-                .join(path);
+            let root = crate::runtime::asset_root();
+            let full_path = match safe_join(&root, path) {
+                Some(p) => p,
+                None => {
+                    eprintln!("Blocked path traversal: {}", path);
+                    return 0;
+                }
+            };
 
             println!("Full file path: {:?}", full_path);
 
@@ -153,5 +158,16 @@ fn mime_from_path(path: &std::path::Path) -> CefString {
         Some("jpg") | Some("jpeg") => CefString::from("image/jpeg"),
         Some("ico") => CefString::from("image/x-icon"),
         _ => CefString::from("application/octet-stream"),
+    }
+}
+
+fn safe_join(root: &Path, request: &str) -> Option<PathBuf> {
+    let candidate = root.join(request);
+    let canonical = candidate.canonicalize().ok()?;
+
+    if canonical.starts_with(root) {
+        Some(canonical)
+    } else {
+        None
     }
 }
