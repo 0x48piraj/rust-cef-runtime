@@ -2,7 +2,8 @@
 
 use cef::*;
 use cef::rc::*;
-use std::cell::RefCell;
+use std::sync::{Arc, Mutex};
+use std::path::{Path, PathBuf};
 
 //
 // SchemeHandlerFactory
@@ -19,15 +20,16 @@ wrap_scheme_handler_factory! {
             _scheme_name: Option<&CefString>,
             request: Option<&mut Request>,
         ) -> Option<ResourceHandler> {
+
             if let Some(req) = request {
                 let url: CefString = (&req.url()).into();
                 println!("SchemeHandlerFactory::create called for URL: {}", url.to_string());
             }
-            
+
             Some(AppResourceHandler::new(
-                RefCell::new(Vec::new()),
-                RefCell::new(0),
-                RefCell::new(CefString::from("text/html")),
+                Arc::new(Mutex::new(Vec::new())),
+                Arc::new(Mutex::new(0)),
+                Arc::new(Mutex::new(String::from("text/html"))),
             ))
         }
     }
@@ -39,12 +41,13 @@ wrap_scheme_handler_factory! {
 
 wrap_resource_handler! {
     pub struct AppResourceHandler {
-        data: RefCell<Vec<u8>>,
-        offset: RefCell<usize>,
-        mime: RefCell<CefString>,
+        data: Arc<Mutex<Vec<u8>>>,
+        offset: Arc<Mutex<usize>>,
+        mime: Arc<Mutex<String>>,
     }
 
     impl ResourceHandler {
+
         fn open(
             &self,
             request: Option<&mut Request>,
@@ -60,7 +63,7 @@ wrap_resource_handler! {
             // Convert cef string to Rust string
             let url: CefString = (&request.url()).into();
             let url = url.to_string();
-            
+
             println!("ResourceHandler::open called for URL: {}", url);
 
             // Strip scheme and handle trailing slashes
@@ -76,7 +79,7 @@ wrap_resource_handler! {
             println!("Resolved path: {}", path);
 
             // Resolve relative to CWD (set by frontend resolver)
-            let root = crate::runtime::asset_root();
+            let root = crate::runtime::Runtime::asset_root();
             let full_path = match safe_join(&root, path) {
                 Some(p) => p,
                 None => {
@@ -98,9 +101,9 @@ wrap_resource_handler! {
                 }
             };
 
-            *self.data.borrow_mut() = bytes;
-            *self.offset.borrow_mut() = 0;
-            *self.mime.borrow_mut() = mime_from_path(&full_path);
+            *self.data.lock().unwrap() = bytes;
+            *self.offset.lock().unwrap() = 0;
+            *self.mime.lock().unwrap() = mime_from_path(&full_path).to_string();
 
             1
         }
@@ -112,8 +115,9 @@ wrap_resource_handler! {
             bytes_read: Option<&mut i32>,
             _callback: Option<&mut ResourceReadCallback>,
         ) -> i32 {
-            let mut offset = self.offset.borrow_mut();
-            let data = self.data.borrow();
+
+            let mut offset = self.offset.lock().unwrap();
+            let data = self.data.lock().unwrap();
 
             let remaining = &data[*offset..];
             let read = remaining.len().min(bytes_to_read as usize);
@@ -139,25 +143,26 @@ wrap_resource_handler! {
             _redirect_url: Option<&mut CefString>,
         ) {
             let response = response.unwrap();
+            let mime = self.mime.lock().unwrap();
             response.set_status(200);
-            response.set_mime_type(Some(&self.mime.borrow()));
-            *response_length.unwrap() = self.data.borrow().len() as i64;
+            response.set_mime_type(Some(&CefString::from(mime.as_str())));
+            *response_length.unwrap() = self.data.lock().unwrap().len() as i64;
         }
     }
 }
 
-fn mime_from_path(path: &std::path::Path) -> CefString {
+fn mime_from_path(path: &Path) -> &'static str {
     match path.extension().and_then(|e| e.to_str()) {
-        Some("html") => CefString::from("text/html"),
-        Some("js") => CefString::from("text/javascript"),
-        Some("css") => CefString::from("text/css"),
-        Some("json") => CefString::from("application/json"),
-        Some("wasm") => CefString::from("application/wasm"),
-        Some("svg") => CefString::from("image/svg+xml"),
-        Some("png") => CefString::from("image/png"),
-        Some("jpg") | Some("jpeg") => CefString::from("image/jpeg"),
-        Some("ico") => CefString::from("image/x-icon"),
-        _ => CefString::from("application/octet-stream"),
+        Some("html") => "text/html",
+        Some("js") => "application/javascript",
+        Some("css") => "text/css",
+        Some("json") => "application/json",
+        Some("wasm") => "application/wasm",
+        Some("svg") => "image/svg+xml",
+        Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("ico") => "image/x-icon",
+        _ => "application/octet-stream",
     }
 }
 

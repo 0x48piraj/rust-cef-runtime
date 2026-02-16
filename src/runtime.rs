@@ -1,7 +1,11 @@
 use cef::{args::Args, *};
 use std::sync::{Arc, Mutex};
+use std::path::PathBuf;
+use std::sync::OnceLock;
 
 use crate::app::DemoApp;
+
+static ASSET_ROOT: OnceLock<PathBuf> = OnceLock::new();
 
 /// Public entry point for launching a CEF application.
 ///
@@ -61,4 +65,19 @@ impl Runtime {
         run_message_loop();
         shutdown();
     }
+
+    pub fn set_asset_root(path: PathBuf) {
+        let canonical = path
+            .canonicalize()
+            .expect("asset root must exist and be absolute");
+
+        println!("Asset root set to: {:?}", canonical);
+
+        ASSET_ROOT.set(canonical).expect("asset root already set");
+    }
+
+    pub fn asset_root() -> PathBuf {
+        ASSET_ROOT.get().expect("asset root not set").clone()
+    }
+
 }
