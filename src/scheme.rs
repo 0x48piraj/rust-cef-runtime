@@ -52,58 +52,73 @@ wrap_resource_handler! {
             &self,
             request: Option<&mut Request>,
             handle_request: Option<&mut i32>,
-            _callback: Option<&mut Callback>,
+            callback: Option<&mut Callback>,
         ) -> i32 {
+
+            // tell CEF we will handle asynchronously
             if let Some(hr) = handle_request {
-                *hr = 1;
+                *hr = 0;
             }
 
             let request = request.unwrap();
+            let callback = callback.unwrap().clone();
 
             // Convert cef string to Rust string
             let url: CefString = (&request.url()).into();
             let url = url.to_string();
 
-            println!("ResourceHandler::open called for URL: {}", url);
+            println!("ResourceHandler::open (async) {}", url);
 
-            // Strip scheme and handle trailing slashes
-            let path = url
-                .strip_prefix("app://app/")
-                .unwrap_or("index.html")
-                .trim_start_matches('/')
-                .trim_end_matches('/'); // Remove trailing slash
+            let data = self.data.clone();
+            let offset = self.offset.clone();
+            let mime = self.mime.clone();
 
-            // Handle empty path (app:// or app:///)
-            let path = if path.is_empty() { "index.html" } else { path };
+            std::thread::spawn(move || {
 
-            println!("Resolved path: {}", path);
+                // Strip scheme and handle trailing slashes
+                let path = url
+                    .strip_prefix("app://app/")
+                    .unwrap_or("index.html")
+                    .trim_start_matches('/')
+                    .trim_end_matches('/');
 
-            // Resolve relative to CWD (set by frontend resolver)
-            let root = crate::runtime::Runtime::asset_root();
-            let full_path = match safe_join(&root, path) {
-                Some(p) => p,
-                None => {
-                    eprintln!("Blocked path traversal: {}", path);
-                    return 0;
-                }
-            };
+                // Handle empty path (app:// or app:///)
+                let path = if path.is_empty() { "index.html" } else { path };
 
-            println!("Full file path: {:?}", full_path);
+                println!("Resolved path: {}", path);
 
-            let bytes = match std::fs::read(&full_path) {
-                Ok(b) => {
-                    println!("Successfully read {} bytes", b.len());
-                    b
-                },
-                Err(e) => {
-                    eprintln!("Failed to read file {:?}: {}", full_path, e);
-                    return 0; // Return 0 to indicate failure
-                }
-            };
+                // Resolve relative to CWD (set by frontend resolver)
+                let root = crate::runtime::Runtime::asset_root();
+                let full_path = match safe_join(&root, path) {
+                    Some(p) => p,
+                    None => {
+                        eprintln!("Blocked path traversal: {}", path);
+                        callback.cont();
+                        return;
+                    }
+                };
 
-            *self.data.lock().unwrap() = bytes;
-            *self.offset.lock().unwrap() = 0;
-            *self.mime.lock().unwrap() = mime_from_path(&full_path).to_string();
+                println!("Full file path: {:?}", full_path);
+
+                let bytes = match std::fs::read(&full_path) {
+                    Ok(b) => {
+                            println!("Successfully read {} bytes", b.len());
+                            b
+                        },
+                    Err(e) => {
+                        eprintln!("Failed to read file {:?}: {}", full_path, e);
+                        callback.cont();
+                        return;
+                    }
+                };
+
+                *data.lock().unwrap() = bytes;
+                *offset.lock().unwrap() = 0;
+                *mime.lock().unwrap() = mime_from_path(&full_path).to_string();
+
+                // notify CEF that headers+data are ready
+                callback.cont();
+            });
 
             1
         }
@@ -123,11 +138,7 @@ wrap_resource_handler! {
             let read = remaining.len().min(bytes_to_read as usize);
 
             unsafe {
-                std::ptr::copy_nonoverlapping(
-                    remaining.as_ptr(),
-                    data_out,
-                    read,
-                );
+                std::ptr::copy_nonoverlapping(remaining.as_ptr(), data_out, read);
             }
 
             *offset += read;
@@ -144,11 +155,13 @@ wrap_resource_handler! {
         ) {
             let response = response.unwrap();
             let mime = self.mime.lock().unwrap();
+
             response.set_status(200);
             response.set_mime_type(Some(&CefString::from(mime.as_str())));
             *response_length.unwrap() = self.data.lock().unwrap().len() as i64;
         }
     }
+
 }
 
 fn mime_from_path(path: &Path) -> &'static str {
