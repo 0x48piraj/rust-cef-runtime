@@ -6,7 +6,8 @@ mod common {
 }
 
 fn main() {
-    let url = common::frontend::resolve("webgl2");
-    Runtime::run(url);
+    let (root, url) = common::frontend::resolve("webgl2");
 
+    Runtime::set_asset_root(root);
+    Runtime::run(url);
 }

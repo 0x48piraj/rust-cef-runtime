@@ -10,10 +10,11 @@ use std::path::PathBuf;
 /// 2. CEF_APP_PATH (custom frontend directory)
 /// 3. examples/<name>/index.html (cargo run)
 /// 4. assets/index.html next to the executable (release)
-pub fn resolve(default_example: &str) -> CefString {
+pub fn resolve(default_example: &str) -> (PathBuf, CefString) {
+
     // Dev server override
     if let Ok(url) = std::env::var("CEF_DEV_URL") {
-        return CefString::from(url.as_str());
+        return (std::env::current_dir().unwrap(), CefString::from(url.as_str()));
     }
 
     // Custom frontend directory override
@@ -23,24 +24,15 @@ pub fn resolve(default_example: &str) -> CefString {
     // Cargo dev: use project root
     if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
         let dir = PathBuf::from(manifest_dir).join(app_path);
-        
+
         if dir.join("index.html").exists() {
-            // Set CWD to frontend directory
-            std::env::set_current_dir(&dir)
-                .expect("Failed to set working directory to frontend");
-            
-            return CefString::from("app://app/index.html");
+            return (dir, CefString::from("app://app/index.html"));
         }
     }
 
     // Release: assets next to executable
     let exe = std::env::current_exe().unwrap();
     let dir = exe.parent().unwrap().join("assets");
-    
-    if dir.join("index.html").exists() {
-        std::env::set_current_dir(&dir)
-            .expect("Failed to set working directory to assets");
-    }
 
-    CefString::from("app://app/index.html")
+    (dir, CefString::from("app://app/index.html"))
 }
