@@ -14,6 +14,7 @@ wrap_browser_process_handler! {
 
         // Keep factory alive for browser lifetime; RefCell for interior mutability
         scheme_factory: RefCell<Option<SchemeHandlerFactory>>,
+        window_delegate: RefCell<Option<WindowDelegate>>,
     }
 
     impl BrowserProcessHandler {
@@ -51,13 +52,19 @@ wrap_browser_process_handler! {
             )
             .expect("browser_view_create failed");
 
-            let mut delegate = DemoWindowDelegate::new(browser_view);
+            // Create delegate
+            let mut delegate = DemoWindowDelegate::new(browser_view, self.window.clone());
 
-            if let Ok(mut window) = self.window.lock() {
-                *window = Some(
-                    window_create_top_level(Some(&mut delegate))
-                        .expect("window_create_top_level failed"),
-                );
+            // Create window
+            let window = window_create_top_level(Some(&mut delegate))
+                .expect("window_create_top_level failed");
+
+            // Store delegate
+            *self.window_delegate.borrow_mut() = Some(delegate);
+
+            // Store window handle
+            if let Ok(mut w) = self.window.lock() {
+                *w = Some(window);
             }
         }
     }

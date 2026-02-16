@@ -89,6 +89,7 @@ wrap_app! {
                     self.window.clone(),
                     self.start_url.clone(),
                     std::cell::RefCell::new(None),
+                    std::cell::RefCell::new(None), // new field
                 )
             )
         }
