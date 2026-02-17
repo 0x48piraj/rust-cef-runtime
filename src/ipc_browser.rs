@@ -1,10 +1,12 @@
 //! Browser process IPC dispatcher.
 //! Commands may be registered before CEF starts.
 //! They are buffered and installed once the browser process initializes.
+//! Exposes JSON API while transport remains string based.
 
 use cef::*;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::collections::HashMap;
+use serde_json::Value;
 
 pub type IpcResult = Result<String, String>;
 pub type IpcHandler = Box<dyn Fn(&str) -> IpcResult + Send + Sync>;
@@ -63,7 +65,6 @@ pub fn init_dispatcher() -> Arc<Mutex<IpcDispatcher>> {
         .get_or_init(|| Arc::new(Mutex::new(IpcDispatcher::new())))
         .clone();
 
-    // Drain pending registrations (drop guards before returning)
     {
         let mut pending = pending_commands().lock().unwrap();
         let mut disp = dispatcher.lock().unwrap();
@@ -76,7 +77,7 @@ pub fn init_dispatcher() -> Arc<Mutex<IpcDispatcher>> {
     dispatcher
 }
 
-/// Get dispatcher AFTER init
+/// Get dispatcher after init
 pub fn get_dispatcher() -> Arc<Mutex<IpcDispatcher>> {
     DISPATCHER
         .get()
@@ -84,17 +85,25 @@ pub fn get_dispatcher() -> Arc<Mutex<IpcDispatcher>> {
         .clone()
 }
 
-/// Safe to call BEFORE runtime starts
+/// Public JSON API
 pub fn register_command<F>(command: impl Into<String>, handler: F)
 where
-    F: Fn(&str) -> IpcResult + Send + Sync + 'static,
+    F: Fn(Value) -> Result<Value, String> + Send + Sync + 'static,
 {
-    let handler: IpcHandler = Box::new(handler);
+    let wrapped: IpcHandler = Box::new(move |payload: &str| {
+        let input: Value =
+            serde_json::from_str(payload).unwrap_or(Value::String(payload.to_string()));
+
+        match handler(input) {
+            Ok(v) => Ok(serde_json::to_string(&v).unwrap()),
+            Err(e) => Err(e),
+        }
+    });
 
     if let Some(dispatcher) = DISPATCHER.get() {
-        dispatcher.lock().unwrap().register(command, handler);
+        dispatcher.lock().unwrap().register(command.into(), wrapped);
     } else {
-        pending_commands().lock().unwrap().push((command.into(), handler));
+        pending_commands().lock().unwrap().push((command.into(), wrapped));
     }
 }
 
@@ -156,12 +165,11 @@ pub fn handle_ipc_message(
         frame_id,
     });
 
-    send_response(_browser, id, result);
-
+    send_response(id, result);
     true
 }
 
-fn send_response(_browser: &mut Browser, id: u32, result: IpcResult)
+fn send_response(id: u32, result: IpcResult)
 {
     let call = {
         let mut map = pending_calls().lock().unwrap();

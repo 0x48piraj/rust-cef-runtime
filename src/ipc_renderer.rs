@@ -230,19 +230,11 @@ wrap_v8_handler! {
             // optional payload (string)
             let payload = if args.len() > 1 {
                 if let Some(Some(v)) = args.get(1) {
-                    if v.is_string() != 0 {
-                        let s = v.string_value();
-                        let cef: CefString = (&s).into();
-                        cef.to_string()
-                    } else {
-                        String::new()
-                    }
-                } else {
-                    String::new()
-                }
-            } else {
-                String::new()
-            };
+                    let s = v.string_value();
+                    let cef: CefString = (&s).into();
+                    cef.to_string()
+                } else { String::new() }
+            } else { String::new() };
 
             let context = v8_context_get_current_context().unwrap();
             let promise = v8_value_create_promise().unwrap();
