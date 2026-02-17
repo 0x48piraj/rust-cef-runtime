@@ -1,3 +1,8 @@
+import { invoke } from "./rust-cef-runtime.js";
+
+const result = await invoke("add", {a:1,b:2});
+console.log(result);
+
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d", { alpha: false });
 const fpsEl = document.getElementById("fps");

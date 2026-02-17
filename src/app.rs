@@ -73,8 +73,6 @@ wrap_app! {
             let flags =
                 CEF_SCHEME_OPTION_STANDARD as i32 |
                 CEF_SCHEME_OPTION_SECURE as i32 |
-                CEF_SCHEME_OPTION_LOCAL as i32 |
-                CEF_SCHEME_OPTION_DISPLAY_ISOLATED as i32 |
                 CEF_SCHEME_OPTION_CORS_ENABLED as i32 |
                 CEF_SCHEME_OPTION_FETCH_ENABLED as i32;
 
