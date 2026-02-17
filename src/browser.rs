@@ -15,6 +15,7 @@ wrap_browser_process_handler! {
         // Keep factory alive for browser lifetime; RefCell for interior mutability
         scheme_factory: RefCell<Option<SchemeHandlerFactory>>,
         window_delegate: RefCell<Option<WindowDelegate>>,
+        browser_created: RefCell<bool>,
     }
 
     impl BrowserProcessHandler {
@@ -22,31 +23,37 @@ wrap_browser_process_handler! {
             println!("on_context_initialized called");
 
             // Register once per request context
-            if self.scheme_factory.borrow().is_some() {
+            if self.scheme_factory.borrow().is_none() {
+                println!("Registering scheme handler factory for app://");
+
+                // create factory (temporary mutable)
+                let mut factory = crate::scheme::AppSchemeHandlerFactory::new();
+
+                // Register the scheme handler factory for app:// URLs
+                let result = register_scheme_handler_factory(
+                    Some(&CefString::from("app")),
+                    Some(&CefString::from("app")),
+                    Some(&mut factory),
+                );
+
+                // store so CEF never calls freed memory
+                *self.scheme_factory.borrow_mut() = Some(factory);
+
+                println!("register_scheme_handler_factory result: {}", result);
+            }
+
+            // Create browser only once
+            if *self.browser_created.borrow() {
+                println!("Context init (secondary); skipping browser creation");
                 return;
             }
 
-            println!("Registering scheme handler factory for app://");
-
-            // create factory (temporary mutable)
-            let mut factory = crate::scheme::AppSchemeHandlerFactory::new();
-
-            // Register the scheme handler factory for app:// URLs
-            let result = register_scheme_handler_factory(
-                Some(&CefString::from("app")),
-                Some(&CefString::from("app")),
-                Some(&mut factory),
-            );
-
-            // store so CEF never calls freed memory
-            *self.scheme_factory.borrow_mut() = Some(factory);
-
-            println!("register_scheme_handler_factory result: {}", result);
+            *self.browser_created.borrow_mut() = true;
 
             let mut client = DemoClient::new();
             let url = self.start_url.clone();
 
-            println!("Creating browser with URL: {}", url.to_string());
+            println!("Creating main browser with URL: {}", url.to_string());
 
             let browser_view = browser_view_create(
                 Some(&mut client),

@@ -3,6 +3,7 @@
 use cef::*;
 use cef::rc::*;
 use std::sync::{Arc, Mutex};
+use std::cell::RefCell;
 
 use crate::browser::DemoBrowserProcessHandler;
 use cef::sys::cef_scheme_options_t::*;
@@ -88,8 +89,9 @@ wrap_app! {
                 DemoBrowserProcessHandler::new(
                     self.window.clone(),
                     self.start_url.clone(),
-                    std::cell::RefCell::new(None),
-                    std::cell::RefCell::new(None),
+                    RefCell::new(None),
+                    RefCell::new(None),
+                    RefCell::new(false),
                 )
             )
         }
