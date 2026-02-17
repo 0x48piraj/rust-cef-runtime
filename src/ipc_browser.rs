@@ -15,6 +15,7 @@ pub struct IpcDispatcher {
 
 struct PendingCall {
     frame: Frame,
+    frame_id: String,
 }
 
 impl IpcDispatcher {
@@ -30,7 +31,7 @@ impl IpcDispatcher {
         if let Some(handler) = self.handlers.get(command) {
             handler(payload)
         } else {
-            Err(format!("Unknown command: {}", command))
+            Err(format!("[IPC] Unknown command '{}'", command))
         }
     }
 }
@@ -145,8 +146,14 @@ pub fn handle_ipc_message(
     let dispatcher = get_dispatcher();
     let result = dispatcher.lock().unwrap().dispatch(&command, &payload);
 
+    let frame_id = {
+        let s: CefString = (&frame.identifier()).into();
+        s.to_string()
+    };
+
     pending_calls().lock().unwrap().insert(id, PendingCall {
         frame: frame.clone(),
+        frame_id,
     });
 
     send_response(_browser, id, result);
@@ -161,14 +168,25 @@ fn send_response(_browser: &mut Browser, id: u32, result: IpcResult)
         map.remove(&id)
     };
 
-    let Some(mut call) = call else {
+    let Some(call) = call else {
         println!("[IPC] dropping response {}, caller gone", id);
         return;
     };
 
-    // Frame destroyed (navigation / reload)
+    // frame no longer exists
     if call.frame.is_valid() == 0 {
         println!("[IPC] frame destroyed, dropping {}", id);
+        return;
+    }
+
+    // navigation changed frame identity
+    let current_id = {
+        let s: CefString = (&call.frame.identifier()).into();
+        s.to_string()
+    };
+
+    if current_id != call.frame_id {
+        println!("[IPC] navigation changed frame, dropping stale response {}", id);
         return;
     }
 
