@@ -22,6 +22,10 @@ wrap_browser_process_handler! {
         fn on_context_initialized(&self) {
             println!("on_context_initialized called");
 
+            // Initialize IPC dispatcher
+            crate::ipc_browser::init_dispatcher();
+            println!("IPC dispatcher initialized");
+
             // Register once per request context
             if self.scheme_factory.borrow().is_none() {
                 println!("Registering scheme handler factory for app://");

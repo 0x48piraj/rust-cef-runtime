@@ -15,9 +15,14 @@ mod client;
 mod scheme;
 mod error;
 mod fs_pool;
+mod ipc_renderer;
+mod ipc_browser;
 
 #[cfg(target_os = "macos")]
 mod platform;
 
 pub use runtime::Runtime;
 pub use error::RuntimeError;
+
+// Re-export IPC types for public use
+pub use ipc_browser::{IpcResult, register_command};

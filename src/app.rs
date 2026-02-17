@@ -6,6 +6,8 @@ use std::sync::{Arc, Mutex};
 use std::cell::RefCell;
 
 use crate::browser::DemoBrowserProcessHandler;
+use crate::ipc_renderer::IpcRenderProcessHandler;
+
 use cef::sys::cef_scheme_options_t::*;
 
 wrap_app! {
@@ -94,6 +96,10 @@ wrap_app! {
                     RefCell::new(false),
                 )
             )
+        }
+
+        fn render_process_handler(&self) -> Option<RenderProcessHandler> {
+            Some(IpcRenderProcessHandler::new())
         }
     }
 }
