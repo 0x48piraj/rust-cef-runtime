@@ -47,7 +47,7 @@ impl PromiseRegistry {
 
             context.exit();
         } else {
-            eprintln!("No pending promise found for ID {}", id);
+            println!("[IPC debug] stale response {}", id);
         }
     }
 }
@@ -61,30 +61,37 @@ fn ensure_registry() {
     }
 }
 
-fn register_promise(context: V8Context, promise: V8Value) -> u32 {
-    let mut guard = PROMISE_REGISTRY.lock().unwrap();
-    guard.as_mut().unwrap().register(context, promise)
+fn register_promise(ctx: V8Context, promise: V8Value) -> u32 {
+    PROMISE_REGISTRY.lock().unwrap().as_mut().unwrap().register(ctx, promise)
 }
 
-fn resolve_promise(id: u32, success: bool, result: &str) {
-    let mut guard = PROMISE_REGISTRY.lock().unwrap();
-    guard.as_mut().unwrap().resolve(id, success, result)
+fn resolve_promise(id: u32, success: bool, payload: &str) {
+    PROMISE_REGISTRY.lock().unwrap().as_mut().unwrap().resolve(id, success, payload)
 }
+
+//
+// Helpers
+//
 
 fn list_int(args: &ListValue, idx: usize) -> i32 {
     args.int(idx)
 }
 
-fn list_string_to_rust(args: &ListValue, idx: usize) -> String {
-    let userfree = args.string(idx);
-    let cef: CefString = (&userfree).into();
-    cef.to_string()
+fn list_string(args: &ListValue, idx: usize) -> String {
+    let s = args.string(idx);
+    let s: CefString = (&s).into();
+    s.to_string()
 }
+
+//
+// Renderer handler
+//
 
 wrap_render_process_handler! {
     pub struct IpcRenderProcessHandler;
 
     impl RenderProcessHandler {
+
         fn on_context_created(
             &self,
             _browser: Option<&mut Browser>,
@@ -130,24 +137,15 @@ wrap_render_process_handler! {
                 return 0;
             }
 
-            let msg = match message {
-                Some(m) => m,
-                None => return 0,
-            };
-
+            let msg = message.unwrap();
             let name: CefString = (&msg.name()).into();
-            if name.to_string() != "ipc" {
-                return 0;
-            }
+            if name.to_string() != "ipc" { return 0; }
 
-            let args = match msg.argument_list() {
-                Some(a) => a,
-                None => return 0,
-            };
+            let args = msg.argument_list().unwrap();
 
             let msg_type = list_int(&args, 0);
             let id = list_int(&args, 1) as u32;
-            let payload = list_string_to_rust(&args, 2);
+            let payload = list_string(&args, 2);
 
             match msg_type {
                 1 => resolve_promise(id, true, &payload),
@@ -161,6 +159,10 @@ wrap_render_process_handler! {
         }
     }
 }
+
+//
+// JS invoke
+//
 
 wrap_v8_handler! {
     pub struct IpcInvokeHandler;
@@ -177,17 +179,12 @@ wrap_v8_handler! {
             // args must be present
             let args = match arguments {
                 Some(a) => a,
-                None => {
-                    if let Some(exc) = exception {
-                        *exc = CefString::from("No arguments");
-                    }
-                    return 0;
-                }
+                None => return 0,
             };
 
-            if args.len() < 1 {
+            if args.is_empty() {
                 if let Some(exc) = exception {
-                    *exc = CefString::from("invoke requires at least 1 argument");
+                    *exc = CefString::from("invoke requires command");
                 }
                 return 0;
             }

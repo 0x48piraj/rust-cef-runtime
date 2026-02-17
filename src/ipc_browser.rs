@@ -13,6 +13,10 @@ pub struct IpcDispatcher {
     handlers: HashMap<String, IpcHandler>,
 }
 
+struct PendingCall {
+    frame: Frame,
+}
+
 impl IpcDispatcher {
     fn new() -> Self {
         Self { handlers: HashMap::new() }
@@ -40,6 +44,12 @@ static DISPATCHER: OnceLock<Arc<Mutex<IpcDispatcher>>> = OnceLock::new();
 
 /// Commands registered before runtime boot
 static PENDING_COMMANDS: OnceLock<Mutex<Vec<(String, IpcHandler)>>> = OnceLock::new();
+
+static PENDING_CALLS: OnceLock<Mutex<HashMap<u32, PendingCall>>> = OnceLock::new();
+
+fn pending_calls() -> &'static Mutex<HashMap<u32, PendingCall>> {
+    PENDING_CALLS.get_or_init(|| Mutex::new(HashMap::new()))
+}
 
 fn pending_commands() -> &'static Mutex<Vec<(String, IpcHandler)>> {
     PENDING_COMMANDS.get_or_init(|| Mutex::new(Vec::new()))
@@ -135,12 +145,33 @@ pub fn handle_ipc_message(
     let dispatcher = get_dispatcher();
     let result = dispatcher.lock().unwrap().dispatch(&command, &payload);
 
-    send_response(frame, id, result);
+    pending_calls().lock().unwrap().insert(id, PendingCall {
+        frame: frame.clone(),
+    });
+
+    send_response(_browser, id, result);
 
     true
 }
 
-fn send_response(frame: &mut Frame, id: u32, result: IpcResult) {
+fn send_response(_browser: &mut Browser, id: u32, result: IpcResult)
+{
+    let call = {
+        let mut map = pending_calls().lock().unwrap();
+        map.remove(&id)
+    };
+
+    let Some(mut call) = call else {
+        println!("[IPC] dropping response {}, caller gone", id);
+        return;
+    };
+
+    // Frame destroyed (navigation / reload)
+    if call.frame.is_valid() == 0 {
+        println!("[IPC] frame destroyed, dropping {}", id);
+        return;
+    }
+
     let mut msg = process_message_create(Some(&CefString::from("ipc"))).unwrap();
     let args = msg.argument_list().unwrap();
 
@@ -157,5 +188,5 @@ fn send_response(frame: &mut Frame, id: u32, result: IpcResult) {
         }
     }
 
-    frame.send_process_message(ProcessId::RENDERER, Some(&mut msg));
+    call.frame.send_process_message(ProcessId::RENDERER, Some(&mut msg));
 }
