@@ -4,6 +4,7 @@ use cef::*;
 use cef::rc::*;
 use std::sync::{Arc, Mutex};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
 //
 // SchemeHandlerFactory
@@ -30,6 +31,9 @@ wrap_scheme_handler_factory! {
                 Arc::new(Mutex::new(Vec::new())),
                 Arc::new(Mutex::new(0)),
                 Arc::new(Mutex::new(String::from("text/html"))),
+                Arc::new(AtomicBool::new(false)),
+                Arc::new(AtomicBool::new(false)),
+                Arc::new(AtomicI32::new(200)),
             ))
         }
     }
@@ -44,6 +48,10 @@ wrap_resource_handler! {
         data: Arc<Mutex<Vec<u8>>>,
         offset: Arc<Mutex<usize>>,
         mime: Arc<Mutex<String>>,
+
+        ready: Arc<AtomicBool>,
+        failed: Arc<AtomicBool>,
+        status: Arc<AtomicI32>,
     }
 
     impl ResourceHandler {
@@ -72,6 +80,9 @@ wrap_resource_handler! {
             let data = self.data.clone();
             let offset = self.offset.clone();
             let mime = self.mime.clone();
+            let ready = self.ready.clone();
+            let failed = self.failed.clone();
+            let status = self.status.clone();
 
             std::thread::spawn(move || {
 
@@ -92,7 +103,9 @@ wrap_resource_handler! {
                 let full_path = match safe_join(&root, path) {
                     Some(p) => p,
                     None => {
-                        eprintln!("Blocked path traversal: {}", path);
+                        failed.store(true, Ordering::Release);
+                        status.store(404, Ordering::Release);
+                        ready.store(true, Ordering::Release);
                         callback.cont();
                         return;
                     }
@@ -100,23 +113,20 @@ wrap_resource_handler! {
 
                 println!("Full file path: {:?}", full_path);
 
-                let bytes = match std::fs::read(&full_path) {
-                    Ok(b) => {
-                            println!("Successfully read {} bytes", b.len());
-                            b
-                        },
-                    Err(e) => {
-                        eprintln!("Failed to read file {:?}: {}", full_path, e);
-                        callback.cont();
-                        return;
+                match std::fs::read(&full_path) {
+                    Ok(bytes) => {
+                        *data.lock().unwrap() = bytes;
+                        *offset.lock().unwrap() = 0;
+                        *mime.lock().unwrap() = mime_from_path(&full_path).to_string();
+                        status.store(200, Ordering::Release);
                     }
-                };
+                    Err(_) => {
+                        failed.store(true, Ordering::Release);
+                        status.store(404, Ordering::Release);
+                    }
+                }
 
-                *data.lock().unwrap() = bytes;
-                *offset.lock().unwrap() = 0;
-                *mime.lock().unwrap() = mime_from_path(&full_path).to_string();
-
-                // notify CEF that headers+data are ready
+                ready.store(true, Ordering::Release);
                 callback.cont();
             });
 
@@ -130,6 +140,16 @@ wrap_resource_handler! {
             bytes_read: Option<&mut i32>,
             _callback: Option<&mut ResourceReadCallback>,
         ) -> i32 {
+
+            if !self.ready.load(Ordering::Acquire) {
+                *bytes_read.unwrap() = 0;
+                return 0; // wait, not EOF
+            }
+
+            if self.failed.load(Ordering::Acquire) {
+                *bytes_read.unwrap() = 0;
+                return 0;
+            }
 
             let mut offset = self.offset.lock().unwrap();
             let data = self.data.lock().unwrap();
@@ -154,10 +174,15 @@ wrap_resource_handler! {
             _redirect_url: Option<&mut CefString>,
         ) {
             let response = response.unwrap();
-            let mime = self.mime.lock().unwrap();
 
-            response.set_status(200);
-            response.set_mime_type(Some(&CefString::from(mime.as_str())));
+            let status = self.status.load(Ordering::Acquire);
+            response.set_status(status);
+
+            if status == 200 {
+                let mime = self.mime.lock().unwrap();
+                response.set_mime_type(Some(&CefString::from(mime.as_str())));
+            }
+
             *response_length.unwrap() = self.data.lock().unwrap().len() as i64;
         }
     }
