@@ -47,7 +47,7 @@ impl PromiseRegistry {
 
             context.exit();
         } else {
-            println!("[IPC debug] stale response {}", id);
+            eprintln!("[IPC WARNING] received response for missing promise id={} (likely page reload)", id);
         }
     }
 }
@@ -67,6 +67,18 @@ fn register_promise(ctx: V8Context, promise: V8Value) -> u32 {
 
 fn resolve_promise(id: u32, success: bool, payload: &str) {
     PROMISE_REGISTRY.lock().unwrap().as_mut().unwrap().resolve(id, success, payload)
+}
+
+fn clear_context_promises(ctx: &V8Context) {
+    let mut guard = PROMISE_REGISTRY.lock().unwrap();
+    let registry = guard.as_mut().unwrap();
+
+    registry.pending.retain(|_, (stored_ctx, _)| {
+        let mut other = ctx.clone();
+        stored_ctx.is_same(Some(&mut other)) == 0
+    });
+
+    println!("[IPC] cleared promises for destroyed JS context");
 }
 
 //
@@ -126,6 +138,17 @@ wrap_render_process_handler! {
             println!("[Renderer] Injected window.core.invoke");
         }
 
+        fn on_context_released(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            context: Option<&mut V8Context>,
+        ) {
+            if let Some(ctx) = context {
+                clear_context_promises(ctx);
+            }
+        }
+
         fn on_process_message_received(
             &self,
             _browser: Option<&mut Browser>,
@@ -151,7 +174,7 @@ wrap_render_process_handler! {
                 1 => resolve_promise(id, true, &payload),
                 2 => resolve_promise(id, false, &payload),
                 _ => {
-                    eprintln!("[Renderer] Unknown ipc message type: {}", msg_type);
+                    eprintln!("[IPC ERROR] invalid message type {} from browser", msg_type);
                 }
             }
 
