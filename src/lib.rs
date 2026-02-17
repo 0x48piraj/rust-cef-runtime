@@ -13,8 +13,10 @@ mod browser;
 mod window;
 mod client;
 mod scheme;
+mod error;
 
 #[cfg(target_os = "macos")]
 mod platform;
 
 pub use runtime::Runtime;
+pub use error::RuntimeError;

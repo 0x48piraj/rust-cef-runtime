@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 
 use crate::app::DemoApp;
+use crate::error::RuntimeError;
 
 static ASSET_ROOT: OnceLock<PathBuf> = OnceLock::new();
 
@@ -20,7 +21,9 @@ impl Runtime {
     /// Launches the CEF runtime and blocks until shutdown.
     ///
     /// start_url determines what the browser loads on startup.
-    pub fn run(start_url: CefString) {
+    pub fn run(start_url: CefString) -> Result<(), RuntimeError> {
+        Self::validate_asset_root()?;
+
         #[cfg(target_os = "macos")]
         crate::platform::macos::init_ns_app();
 
@@ -52,18 +55,18 @@ impl Runtime {
             ..Default::default()
         };
 
-        assert_eq!(
-            initialize(
-                Some(args.as_main_args()),
-                Some(&settings),
-                Some(&mut app),
-                std::ptr::null_mut(),
-            ),
-            1
-        );
+        if initialize(
+            Some(args.as_main_args()),
+            Some(&settings),
+            Some(&mut app),
+            std::ptr::null_mut(),
+        ) != 1 {
+            return Err(RuntimeError::CefInitializeFailed);
+        }
 
         run_message_loop();
         shutdown();
+        Ok(())
     }
 
     pub fn set_asset_root(path: PathBuf) {
@@ -80,4 +83,13 @@ impl Runtime {
         ASSET_ROOT.get().expect("asset root not set").clone()
     }
 
+    fn validate_asset_root() -> Result<(), RuntimeError> {
+        let root = ASSET_ROOT.get().ok_or(RuntimeError::AssetRootNotSet)?;
+
+        if !root.exists() {
+            return Err(RuntimeError::AssetRootMissing(root.clone()));
+        }
+
+        Ok(())
+    }
 }
