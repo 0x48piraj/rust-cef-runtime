@@ -84,7 +84,7 @@ wrap_resource_handler! {
             let failed = self.failed.clone();
             let status = self.status.clone();
 
-            std::thread::spawn(move || {
+            crate::fs_pool::spawn_io(move || {
 
                 // Strip scheme and handle trailing slashes
                 let path = url

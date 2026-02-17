@@ -14,6 +14,7 @@ mod window;
 mod client;
 mod scheme;
 mod error;
+mod fs_pool;
 
 #[cfg(target_os = "macos")]
 mod platform;

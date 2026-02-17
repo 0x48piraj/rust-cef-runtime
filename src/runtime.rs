@@ -5,6 +5,7 @@ use std::sync::OnceLock;
 
 use crate::app::DemoApp;
 use crate::error::RuntimeError;
+use crate::fs_pool;
 
 static ASSET_ROOT: OnceLock<PathBuf> = OnceLock::new();
 
@@ -23,6 +24,8 @@ impl Runtime {
     /// start_url determines what the browser loads on startup.
     pub fn run(start_url: CefString) -> Result<(), RuntimeError> {
         Self::validate_asset_root()?;
+
+        fs_pool::init_worker_pool();
 
         #[cfg(target_os = "macos")]
         crate::platform::macos::init_ns_app();
