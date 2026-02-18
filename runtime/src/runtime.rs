@@ -23,6 +23,8 @@ impl Runtime {
     ///
     /// start_url determines what the browser loads on startup.
     pub fn run(start_url: CefString, require_assets: bool) -> Result<(), RuntimeError> {
+        Self::auto_configure_cef()?;
+
         if require_assets {
             Self::validate_asset_root()?;
         }
@@ -79,6 +81,34 @@ impl Runtime {
 
         run_message_loop();
         shutdown();
+        Ok(())
+    }
+
+    fn auto_configure_cef() -> Result<(), RuntimeError> {
+        use std::env;
+
+        if env::var("CEF_PATH").is_ok() {
+            return Ok(());
+        }
+
+        let home = dirs::home_dir().ok_or(RuntimeError::CefNotInstalled)?;
+
+        #[cfg(target_os = "windows")]
+        let cef = home.join(".local/share/cef/cef_windows_x86_64/libcef.dll");
+
+        #[cfg(target_os = "linux")]
+        let cef = home.join(".local/share/cef/cef_linux_x86_64/libcef.so");
+
+        #[cfg(target_os = "macos")]
+        let cef = home.join(".local/share/cef/cef_macos_x86_64/Chromium Embedded Framework.framework");
+
+        if !cef.exists() {
+            return Err(RuntimeError::CefNotInstalled);
+        }
+
+        let root = cef.parent().unwrap();
+        env::set_var("CEF_PATH", root);
+
         Ok(())
     }
 
