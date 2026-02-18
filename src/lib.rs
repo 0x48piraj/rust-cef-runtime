@@ -9,6 +9,7 @@
 
 mod runtime;
 mod app;
+mod cef_app;
 mod browser;
 mod window;
 mod client;
@@ -23,6 +24,7 @@ mod platform;
 
 pub use runtime::Runtime;
 pub use error::RuntimeError;
+pub use app::App;
 
 // Re-export IPC types for public use
 pub use ipc_browser::{IpcResult, register_command};
