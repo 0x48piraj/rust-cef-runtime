@@ -90,8 +90,6 @@ wrap_app! {
                     self.window.clone(),
                     self.start_url.clone(),
                     RefCell::new(None),
-                    RefCell::new(None),
-                    RefCell::new(false),
                 )
             )
         }

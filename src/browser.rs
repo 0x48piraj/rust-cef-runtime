@@ -1,11 +1,14 @@
 //! Browser-process lifecycle handling.
+//! A BrowserProcessHandler exists per request context.
+//! We only want one native window per application,
+//! so we guard creation using the shared window handle.
 
 use cef::*;
 use cef::rc::*;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 
-use crate::{client::DemoClient, window::DemoWindowDelegate};
+use crate::client::DemoClient;
 
 wrap_browser_process_handler! {
     pub struct DemoBrowserProcessHandler {
@@ -14,8 +17,6 @@ wrap_browser_process_handler! {
 
         // Keep factory alive for browser lifetime; RefCell for interior mutability
         scheme_factory: RefCell<Option<SchemeHandlerFactory>>,
-        window_delegate: RefCell<Option<WindowDelegate>>,
-        browser_created: RefCell<bool>,
     }
 
     impl BrowserProcessHandler {
@@ -46,13 +47,14 @@ wrap_browser_process_handler! {
                 println!("register_scheme_handler_factory result: {}", result);
             }
 
-            // Create browser only once
-            if *self.browser_created.borrow() {
-                println!("Context init (secondary); skipping browser creation");
-                return;
+            // Only create window if it does not already exist
+            {
+                let guard = self.window.lock().unwrap();
+                if guard.is_some() {
+                    println!("Secondary request context; skipping window creation");
+                    return;
+                }
             }
-
-            *self.browser_created.borrow_mut() = true;
 
             let mut client = DemoClient::new();
             let url = self.start_url.clone();
@@ -70,19 +72,13 @@ wrap_browser_process_handler! {
             .expect("browser_view_create failed");
 
             // Create delegate
-            let mut delegate = DemoWindowDelegate::new(browser_view, self.window.clone());
+            let mut delegate = crate::window::DemoWindowDelegate::new(browser_view, self.window.clone());
 
             // Create window
             let window = window_create_top_level(Some(&mut delegate))
                 .expect("window_create_top_level failed");
 
-            // Store delegate
-            *self.window_delegate.borrow_mut() = Some(delegate);
-
-            // Store window handle
-            if let Ok(mut w) = self.window.lock() {
-                *w = Some(window);
-            }
+            *self.window.lock().unwrap() = Some(window);
         }
     }
 }
