@@ -1,6 +1,5 @@
-use rust_cef_runtime::Runtime;
-use cef::CefString;
+use rust_cef_runtime::App;
 
 fn main() {
-    Runtime::run(CefString::from("http://localhost:8000"));
+    App::new("http://localhost:8000").run_or_exit();
 }

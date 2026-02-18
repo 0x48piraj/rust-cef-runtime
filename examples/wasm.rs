@@ -1,13 +1,5 @@
-use rust_cef_runtime::Runtime;
-use cef::CefString;
-
-mod common {
-    pub mod frontend;
-}
+use rust_cef_runtime::App;
 
 fn main() {
-    let (root, url) = common::frontend::resolve("wasm");
-
-    Runtime::set_asset_root(root);
-    Runtime::run(url);
+    App::new("wasm").run_or_exit();
 }
