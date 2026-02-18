@@ -10,14 +10,35 @@ pub enum RuntimeError {
 impl Display for RuntimeError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            RuntimeError::AssetRootNotSet =>
-                write!(f, "Runtime::set_asset_root() was not called before Runtime::run()"),
+            RuntimeError::AssetRootNotSet => write!(
+                f,
+                "No frontend assets were configured.
 
-            RuntimeError::AssetRootMissing(p) =>
-                write!(f, "Asset root does not exist: {}", p.display()),
+You attempted to launch a local application, but no asset directory was set.
 
-            RuntimeError::CefInitializeFailed =>
-                write!(f, "CEF failed to initialize"),
+Possible fixes:
+  - Run using App::new(\"demo\") inside a project containing examples/demo/index.html
+  - Set environment variable CEF_APP_PATH to your frontend directory
+  - Use a dev server URL: App::new(\"http://localhost:8000\")"
+            ),
+
+            RuntimeError::AssetRootMissing(p) => write!(
+                f,
+                "Frontend directory does not exist:
+
+  {}
+
+Ensure your frontend build output exists before launching the runtime.",
+                p.display()
+            ),
+
+            RuntimeError::CefInitializeFailed => write!(
+                f,
+                "Chromium Embedded Framework failed to initialize.
+
+This usually means required CEF resources (locales, icudtl.dat, snapshot blobs)
+are missing next to the executable."
+            ),
         }
     }
 }
