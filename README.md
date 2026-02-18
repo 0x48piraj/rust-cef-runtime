@@ -2,40 +2,44 @@
 
 A Rust-native Chromium runtime providing a high-performance foundation for GPU-accelerated desktop applications.
 
-`rust-cef-runtime` is a **low-level, Rust-native Chromium runtime built on the Chromium Embedded Framework (CEF)** for developers who need **control, performance, and consistency** beyond what system WebViews provide.
+`rust-cef-runtime` is a **low-level, low-level Rust runtime built directly on the Chromium Embedded Framework (CEF)** for developers who need **control, performance and consistency** beyond what system WebViews provide.
 
-It exposes Chromium directly: its rendering pipeline, lifecycle, and process model while remaining intentionally minimal, explicit, and unopinionated, **without Electron and without relying on system WebViews**.
+The project provides a predictable, GPU-accelerated rendering environment for desktop applications that need tighter control than system WebViews allow without bundling Node.js or imposing a framework architecture.
+
+In short,
+
+**Chromium goodness. Native Rust. No WebView. No Electron.**
 
 ## Motivation
 
 This project started as a "_GPU-accelerated FPS toy demo built with Tauri for the boys_" that performed extremely well on **Windows (WebView2)** out-of-the-box but encountered hard limitations on **Linux**:
 
-* VSync-locked rendering (~60 FPS)
-* Inconsistent GPU behavior through and through
-* Extremely limited control over the rendering pipeline
+* Compositor vsync limits i.e. VSync-locked rendering (~60 FPS)
+* Inconsistent GPU paths across OSes
+* Limited control over rendering lifecycle
 
 Those constraints are inherent to **system WebViews**, not Tauri itself.
 
-To achieve consistent, high-performance rendering, we pivoted to **CEF**, unlocking:
+For high-frequency rendering workloads, those constraints become architectural limits. So we pivoted to **CEF**, unlocking:
 
 * Native Chromium rendering everywhere
 * Explicit lifecycle and process control
 * Reliable GPU acceleration on Linux (and macOS)
 * High-frequency rendering where the platform allows
 
-The result is a **clean, reusable Rust + CEF runtime** you can build performant desktop apps on
+The result is a **clean, reusable Rust + CEF runtime** you can build performant desktop apps on.
 
-## Why `rust-cef-runtime` (and not Tauri/Electron)
+## Why choose us
 
 Using Chromium directly solves the rendering problem, but existing options have trade-offs:
 
-* **Electron** bundles Node.js, adds runtime overhead, and constrains architecture
-* **Custom Chromium builds** are complex, fragile, and expensive to maintain
+* **Electron** bundles Node.js, adds runtime overhead and constrains architecture
+* **Custom Chromium builds** are complex, fragile and expensive to maintain
 
 * Tauri uses:
 
-  * **WebView2 on Windows**: 🔥 fast, uncapped, GPU-accelerated
-  * **WebKitGTK / WKWebView elsewhere**: ⚠️ vsync-locked, inconsistent GPU support
+  * **WebView2 on Windows**: Fast, uncapped, GPU-accelerated (usually)
+  * **WebKitGTK / WKWebView elsewhere**: Vsync-locked, inconsistent GPU support
 
 * For performance-heavy apps such as:
 
@@ -49,12 +53,11 @@ Using Chromium directly solves the rendering problem, but existing options have 
     * Linux/macOS were capped ~60 FPS
     * GPU behavior varied wildly
 
-**CEF + Rust** provides a middle ground:
+Our project provides a middle ground:
 
 * Native Chromium GPU pipeline
 * Explicit application and window lifecycle
 * No embedded Node.js runtime
-* No opinionated framework
 * Total control over process boundaries and IPC
 
 ## How `rust-cef-runtime` compares with the giants
@@ -65,8 +68,8 @@ Using Chromium directly solves the rendering problem, but existing options have 
 | GPU pipeline                 | Chromium                                         | OS-managed                       | Chromium         |
 | VSync control                | **Uncapped on Windows, Linux**                   | OS-locked                        | OS-locked        |
 | High-FPS rendering           | **Yes**                                          | Limited                          | Limited          |
-| Cross-platform consistency   | Yes                                              | No                               | Yes              |
-| Engine-level control         | **Complete**                                     | No                               | Partial          |
+| Cross-platform behavior      | Consistent                                       | Platform dependent               | Consistent       |
+| Engine-level control         | **Complete**                                     | Limited                          | Partial          |
 | IPC model                    | **Native (CEF / Rust)**                          | JS <-> Rust                      | JS <-> Node      |
 | Binary size                  | Compact                                          | **Small**                        | Large            |
 | Runtime dependency           | **None**                                         | Tauri runtime                    | Electron runtime |
@@ -74,8 +77,7 @@ Using Chromium directly solves the rendering problem, but existing options have 
 | Linux GPU reliability        | **Excellent**                                    | VSync-locked (`WebViewGTK`)      | Good             |
 | macOS GPU control            | **Untested**                                     | OS-restricted (`WKWebView`)      | Good             |
 | Windows GPU stack            | **Excellent**                                    | **Best-in-class**                | Great            |
-| Open source                  | Yes                                              | Yes                              | Yes              |
-| Opinionated framework        | **No**                                           | Yes                              | Yes              |
+| Intended use                 | Engines / high-performance UIs                   | Apps                             | Apps             |
 
 > Note: Actual frame pacing depends on GPU drivers and compositor behavior, but the runtime does not enforce OS-level vsync caps like system WebViews.
 
@@ -90,7 +92,7 @@ It exists for cases where **engine-level control and rendering behavior matter m
 * High-frequency rendering (render loops, visualization, tooling, engines)
 * Developers who want **Chromium without Electron**
 * WebGL, Canvas, WASM-heavy workloads
-* Identical rendering semantics across platforms
+* Identical rendering behavior across platforms
 * Rust-first architectures without embedded JS runtimes
 * Anyone hitting performance or GPU limitations with OS WebViews
 * Anyone who wants **complete control** over rendering & lifecycle
@@ -103,101 +105,23 @@ It exists for cases where **engine-level control and rendering behavior matter m
 * If you want Node.js APIs: **use Electron**
 * If you want native OS integration with minimal effort: **use Tauri**
 
-## Architecture overview
-
-```
-Rust (CEF)
- ├─ App lifecycle (cef::App)
- ├─ BrowserProcessHandler
- ├─ Native window + browser_view
- ├─ JS <-> Rust IPC (cefQuery) (planned)
- └─ Asset loading (file:// or dev server)
-
-HTML / CSS / JS
- ├─ Any framework (Vanilla / React / Vue / Svelte)
- ├─ requestAnimationFrame
- ├─ WebGL / Canvas / WASM
- └─ Calls into Rust via IPC
-```
-
-You explicitly control **everything**:
-
-* Window creation
-* Browser lifecycle
-* Rendering backend
-* IPC boundaries
-
-There is no hidden runtime behavior.
-
 ## Setup
 
-### 1. Install CEF binaries (once)
+### 1. Install CEF (one time)
 
-### Linux or macOS:
+The runtime automatically downloads the **exact Chromium build required by the Rust bindings**.
 
-```bash
-cargo run -p export-cef-dir -- --force $HOME/.local/share/cef
-```
-
-### Windows (using PowerShell):
-
-
-```pwsh
-cargo run -p export-cef-dir -- --force $env:USERPROFILE/.local/share/cef
-```
-
-### 2. Environment variables
-
-### Linux
-
-```sh
-export CEF_PATH="$HOME/.local/share/cef"
-export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$CEF_PATH"
-```
-
-**Sandbox fix:**
+From the project root:
 
 ```bash
-sudo chown root:root ~/.local/share/cef/chrome-sandbox
-sudo chmod 4755 ~/.local/share/cef/chrome-sandbox
+cargo run -p rust-cef-installer
 ```
 
-(CEF will refuse to start without this.)
-
-
-#### NixOS
-
-Enter the dev-shell
+After installation you can simply run the demo:
 
 ```bash
-nix develop
+cargo run --example demo
 ```
-
-Run this (ONCE) to create the shared linked CEF directory:
-
-```bash
-setup-cef
-```
-
-### macOS (experimental)
-
-```sh
-export CEF_PATH="$HOME/.local/share/cef"
-export DYLD_FALLBACK_LIBRARY_PATH="$DYLD_FALLBACK_LIBRARY_PATH:$CEF_PATH:$CEF_PATH/Chromium Embedded Framework.framework/Libraries"
-```
-
-### Windows (using PowerShell)
-
-```pwsh
-$env:CEF_PATH="$env:USERPROFILE/.local/share/cef"
-$env:PATH="$env:PATH;$env:CEF_PATH"
-```
-
-**Ninja fix:**
-
-Run all build commands from a MSVC environment, then launch PowerShell from there.
-
-(CEF will refuse to start if **Ninja** is not available in environment.)
 
 ## Running the examples
 
@@ -215,7 +139,7 @@ This is the **primary demo** for evaluating rendering behavior and performance.
 >
 > On Windows, rendering behavior is strongly influenced by how Chromium is deployed. WebView-based solutions (such as Tauri on Windows) inherit Chrome's browser-integrated GPU pipelines, including accelerated Canvas2D and a fully sandboxed GPU subprocess, which enables WebGL2. Electron similarly ships dedicated Chromium helper processes that unlock these GPU features.
 >
-> `rust-cef-runtime` currently prioritizes a **single-binary CEF architecture**, which trades those browser-level privileges for explicit lifecycle control and simpler distribution. As a result, Canvas2D benchmarks on Windows tend to favor WebView-based solutions, and WebGL2 availability is constrained. These limitations are architectural rather than performance regressions, and do not apply on Linux, where full GPU acceleration and WebGL2 are available.
+> `rust-cef-runtime` currently prioritizes a **single-binary CEF architecture** which trades those browser-level privileges for explicit lifecycle control and simpler distribution. As a result, Canvas2D benchmarks on Windows tend to favor WebView-based solutions and WebGL2 availability is constrained. These limitations are architectural rather than performance regressions and do not apply on Linux, where complete GPU acceleration and WebGL2 are available.
 
 ### WASM demo
 
@@ -273,7 +197,7 @@ Use these to understand:
 * CPU-bound DOM animation costs
 * Why WebGL/Canvas2D are preferred for high-frequency rendering
 
-### Development server (any example)
+### Development server
 
 Override the frontend with a live dev server (useful for hot reload):
 
@@ -299,11 +223,11 @@ The runtime will load `index.html` from the specified directory.
 
 ## Vite-based frontend example
 
-This repository includes a **Vite-built frontend example** used to validate real-world asset loading, module resolution, and import behavior under the custom `app://` scheme.
+This repository includes a **Vite-built frontend example** used to validate real-world asset loading, module resolution and import behavior under the custom app scheme.
 
 ### Purpose
 
-The Vite example is intentionally minimal, but it exercises features that often break in embedded Chromium runtimes:
+The Vite example is intentionally minimal but it exercises features that often break in embedded Chromium runtimes:
 
 * ES module loading
 * CSS imports
@@ -313,12 +237,10 @@ The Vite example is intentionally minimal, but it exercises features that often 
 
 This makes it a good **integration test** for the runtime rather than a visual demo.
 
-### Location
+### Building the frontend
 
 * Source: `tests/files-cors`
 * Build output: `examples/files-cors`
-
-### Building the frontend
 
 From the project root:
 
@@ -375,21 +297,37 @@ No environment variables are required in production.
 
 ## 🚧 Current status
 
-**Implemented**
+#### Implemented
 
-✅ Cross-platform CEF-based runtime (Rust-native)<br>
-✅ Native window creation and lifecycle management<br>
-✅ GPU-accelerated rendering via Chromium<br>
-✅ File-based and dev-server frontend loading<br>
-✅ Linux, Windows, and macOS support (platform-specific init where required)<br>
-✅ Modular runtime architecture suitable for reuse<br>
+- [x] Cross-platform CEF-based runtime (Rust-native)
+- [x] Native window creation and lifecycle management
+- [x] GPU-accelerated rendering via Chromium
+- [x] File-based and dev-server frontend loading
+- [x] Linux, Windows and macOS support (platform-specific init where required)
+- [x] Modular runtime architecture suitable for reuse
+- [x] Examples gallery (Canvas, DOM, WebGL, WASM)
+- [x] Custom app protocol
+- [x] Structured IPC
+- [x] Packaging & distribution helpers
+- [x] Higher-level application API
 
-**In progress / planned**
+#### In progress / planned
 
-🔜 Native JS <-> Rust IPC (CEF message router / `cefQuery`)<br>
-🔜 Examples gallery (Canvas, DOM, WebGL, WASM)<br>
-🔜 Packaging & distribution helpers<br>
-🔜 CI builds and example verification<br>
-🔜 Nominal project scaffolding / starter layout<br>
+* More packaging helpers
+* CI builds and example verification
+* Nominal project scaffolding / starter layout
 
-> *Features are added incrementally. Stability and correctness take priority over convenience abstractions.*
+## Philosophy
+
+This project intentionally does **not** hide Chromium.
+
+You control:
+
+* Window lifecycle
+* Browser lifecycle
+* Process boundaries
+* Renderer <-> native communication
+
+Higher-level abstractions may exist later, but the low-level runtime remains accessible.
+
+> *Features are added incrementally. Stability takes priority over convenience abstractions.*
