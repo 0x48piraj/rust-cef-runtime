@@ -1,7 +1,7 @@
 //! High level application bootstrap API.
 //!
 //! This is the public developer entrypoint built on top of Runtime.
-//! It hides asset resolution, environment overrides, and command registration.
+//! This helps in the abstraction of asset resolution, environment overrides and command registration.
 
 use std::path::PathBuf;
 use serde_json::Value;

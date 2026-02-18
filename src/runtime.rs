@@ -74,14 +74,16 @@ impl Runtime {
         Ok(())
     }
 
-    pub fn set_asset_root(path: PathBuf) {
+    pub fn set_asset_root(path: PathBuf) -> Result<(), RuntimeError> {
         let canonical = path
             .canonicalize()
-            .expect("asset root must exist and be absolute");
+            .map_err(|_| RuntimeError::AssetRootMissing(path.clone()))?;
 
-        println!("Asset root set to: {:?}", canonical);
+        ASSET_ROOT
+            .set(canonical)
+            .map_err(|_| RuntimeError::AssetRootNotSet)?;
 
-        ASSET_ROOT.set(canonical).expect("asset root already set");
+        Ok(())
     }
 
     pub fn asset_root() -> PathBuf {
