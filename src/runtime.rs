@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use crate::app::DemoApp;
+use crate::cef_app::DemoApp;
 use crate::error::RuntimeError;
 use crate::fs_pool;
 
@@ -22,8 +22,10 @@ impl Runtime {
     /// Launches the CEF runtime and blocks until shutdown.
     ///
     /// start_url determines what the browser loads on startup.
-    pub fn run(start_url: CefString) -> Result<(), RuntimeError> {
-        Self::validate_asset_root()?;
+    pub fn run(start_url: CefString, require_assets: bool) -> Result<(), RuntimeError> {
+        if require_assets {
+            Self::validate_asset_root()?;
+        }
 
         fs_pool::init_worker_pool();
 
