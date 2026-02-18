@@ -5,6 +5,7 @@ pub enum RuntimeError {
     AssetRootNotSet,
     AssetRootMissing(std::path::PathBuf),
     CefInitializeFailed,
+    CefNotInstalled,
 }
 
 impl Display for RuntimeError {
@@ -38,6 +39,17 @@ Ensure your frontend build output exists before launching the runtime.",
 
 This usually means required CEF resources (locales, icudtl.dat, snapshot blobs)
 are missing next to the executable."
+            ),
+
+            RuntimeError::CefNotInstalled => write!(
+                f,
+                "Chromium Embedded Framework is not installed.
+
+Install it with:
+
+    cargo run -p rust-cef-installer
+
+Then run your application again."
             ),
         }
     }
