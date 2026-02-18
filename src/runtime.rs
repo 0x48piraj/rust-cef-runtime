@@ -54,9 +54,17 @@ impl Runtime {
             .expect("failed to get current exe path");
         let exe_str = exe.to_string_lossy();
 
+        let cache_dir = std::env::temp_dir().join("rust_cef_runtime");
+        std::fs::create_dir_all(&cache_dir).ok();
+
+        // Use a persistent profile instead of CEF's default incognito mode.
+        // This enables cookies, storage APIs and service workers.
         let settings = Settings {
             no_sandbox: 1,
             browser_subprocess_path: CefString::from(exe_str.as_ref()),
+            cache_path: CefString::from(cache_dir.to_string_lossy().as_ref()),
+            root_cache_path: CefString::from(cache_dir.to_string_lossy().as_ref()),
+            persist_session_cookies: 1,
             ..Default::default()
         };
 
