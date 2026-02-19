@@ -23,8 +23,6 @@ impl Runtime {
     ///
     /// start_url determines what the browser loads on startup.
     pub fn run(start_url: CefString, require_assets: bool) -> Result<(), RuntimeError> {
-        Self::auto_configure_cef()?;
-
         if require_assets {
             Self::validate_asset_root()?;
         }
@@ -59,14 +57,46 @@ impl Runtime {
         let cache_dir = std::env::temp_dir().join("rust_cef_runtime");
         std::fs::create_dir_all(&cache_dir).ok();
 
+        let cef_root = find_cef_root()?
+            .canonicalize()
+            .map_err(|_| RuntimeError::CefNotInstalled)?;
+
+        let cef_root_str = cef_root.to_string_lossy();
+
+        let no_sandbox: i32 = if cfg!(target_os = "linux") { 1 } else { 0 };
+
+        let locales_dir = cef_root.join("locales");
+
+        #[cfg(target_os = "macos")]
+        let settings = {
+            let mut s = Settings {
+                browser_subprocess_path: CefString::from(exe_str.as_ref()),
+                resources_dir_path: CefString::from(cef_root_str.as_ref()),
+                locales_dir_path: CefString::from(locales_dir.to_string_lossy().as_ref()),
+                cache_path: CefString::from(cache_dir.to_string_lossy().as_ref()),
+                root_cache_path: CefString::from(cache_dir.to_string_lossy().as_ref()),
+                persist_session_cookies: 1,
+                no_sandbox,
+                ..Default::default()
+            };
+
+            let framework = cef_root.join("Chromium Embedded Framework.framework");
+            s.framework_dir_path = CefString::from(framework.to_string_lossy().as_ref());
+
+            s
+        };
+
         // Use a persistent profile instead of CEF's default incognito mode.
         // This enables cookies, storage APIs and service workers.
+        #[cfg(not(target_os = "macos"))]
         let settings = Settings {
-            no_sandbox: 1,
             browser_subprocess_path: CefString::from(exe_str.as_ref()),
+            resources_dir_path: CefString::from(cef_root_str.as_ref()),
+            locales_dir_path: CefString::from(locales_dir.to_string_lossy().as_ref()),
             cache_path: CefString::from(cache_dir.to_string_lossy().as_ref()),
             root_cache_path: CefString::from(cache_dir.to_string_lossy().as_ref()),
             persist_session_cookies: 1,
+            no_sandbox,
             ..Default::default()
         };
 
@@ -81,34 +111,6 @@ impl Runtime {
 
         run_message_loop();
         shutdown();
-        Ok(())
-    }
-
-    fn auto_configure_cef() -> Result<(), RuntimeError> {
-        use std::env;
-
-        if env::var("CEF_PATH").is_ok() {
-            return Ok(());
-        }
-
-        let home = dirs::home_dir().ok_or(RuntimeError::CefNotInstalled)?;
-
-        #[cfg(target_os = "windows")]
-        let cef = home.join(".local/share/cef/cef_windows_x86_64/libcef.dll");
-
-        #[cfg(target_os = "linux")]
-        let cef = home.join(".local/share/cef/cef_linux_x86_64/libcef.so");
-
-        #[cfg(target_os = "macos")]
-        let cef = home.join(".local/share/cef/cef_macos_x86_64/Chromium Embedded Framework.framework");
-
-        if !cef.exists() {
-            return Err(RuntimeError::CefNotInstalled);
-        }
-
-        let root = cef.parent().unwrap();
-        env::set_var("CEF_PATH", root);
-
         Ok(())
     }
 
@@ -137,4 +139,36 @@ impl Runtime {
 
         Ok(())
     }
+}
+
+fn find_cef_root() -> Result<PathBuf, RuntimeError> {
+    use std::env;
+
+    // Explicit override
+    if let Ok(path) = env::var("CEF_PATH") {
+        let p = PathBuf::from(path);
+        if p.exists() {
+            return Ok(p);
+        }
+    }
+
+    // Next to executable (production)
+    if let Ok(exe) = env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let candidate = dir.join("cef");
+            if candidate.exists() {
+                return Ok(candidate);
+            }
+        }
+    }
+
+    // User install location (dev)
+    if let Some(home) = dirs::home_dir() {
+        let candidate = home.join(".local/share/cef");
+        if candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+
+    Err(RuntimeError::CefNotInstalled)
 }
