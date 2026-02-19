@@ -24,8 +24,8 @@ Chromium requires the SUID sandbox for renderer and GPU processes.
 Run **once** after installing:
 
 ```bash
-sudo chown root:root ~/.local/share/cef/*/chrome-sandbox
-sudo chmod 4755 ~/.local/share/cef/*/chrome-sandbox
+sudo chown root:root ~/.local/share/cef/chrome-sandbox
+sudo chmod 4755 ~/.local/share/cef/chrome-sandbox
 ```
 
 Without this, Chromium may fail to start or run without GPU acceleration.

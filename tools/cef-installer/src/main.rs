@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use serde::Deserialize;
 use download_cef::{CefIndex, DEFAULT_TARGET};
+use std::time::Duration;
 use std::path::{Path, PathBuf};
 
 fn default_install_dir() -> PathBuf {
@@ -43,14 +44,38 @@ fn required_cef_version(lock_path: &Path) -> Result<String> {
         .find(|p| p.name == "cef-dll-sys")
         .context("cef-dll-sys not found in Cargo.lock (did you build once?)")?;
 
-    // version format i.e. 145.2.0+145.0.24
-    let cef_version = pkg
-        .version
-        .split('+')
-        .nth(1)
-        .context("invalid cef-dll-sys version format")?;
+    Ok(pkg.version.split('+').nth(1)
+        .context("invalid cef-dll-sys version format")?
+        .to_string())
+}
 
-    Ok(cef_version.to_string())
+fn print_env_instructions(root: &Path) {
+    println!("\nInitializing runtime (one-time setup)\n");
+
+    #[cfg(target_os="windows")]
+    {
+        println!("PowerShell:");
+        println!(r#"$env:CEF_PATH="{}""#, root.display());
+        println!(r#"$env:PATH="$env:PATH;$env:CEF_PATH""#);
+    }
+
+    #[cfg(target_os="linux")]
+    {
+        println!(r#"export CEF_PATH="{}""#, root.display());
+        println!(r#"export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$CEF_PATH""#);
+        println!("Run once:");
+        println!(" sudo chown root:root {}/cef_linux_x86_64/chrome-sandbox", install_dir.display());
+        println!(" sudo chmod 4755 {}/cef_linux_x86_64/chrome-sandbox", install_dir.display());
+    }
+
+    #[cfg(target_os="macos")]
+    {
+        println!(r#"export CEF_PATH="{}""#, root.display());
+        println!(r#"export DYLD_FALLBACK_LIBRARY_PATH="$DYLD_FALLBACK_LIBRARY_PATH:$CEF_PATH:$CEF_PATH/Chromium Embedded Framework.framework/Libraries""#);
+    }
+
+    println!("\nRestart your terminal after running these commands.");
+    println!("Then run: cargo run --example demo\n");
 }
 
 fn main() -> Result<()> {
@@ -62,8 +87,9 @@ fn main() -> Result<()> {
     let cef_version = required_cef_version(&lock)?;
     println!("Required CEF version: {}", cef_version);
 
-    let install_dir = default_install_dir();
-    std::fs::create_dir_all(&install_dir)?;
+    let install_dir = default_install_dir(); // ~/.local/share/cef
+    let parent = install_dir.parent().unwrap(); // ~/.local/share
+    std::fs::create_dir_all(parent)?;
 
     let index = CefIndex::download()?;
     let platform = index.platform(DEFAULT_TARGET)?;
@@ -72,17 +98,36 @@ fn main() -> Result<()> {
     println!("Downloading matching CEF build...");
 
     let archive = version.download_archive_with_retry(
-        &install_dir,
+        parent,
         true,
-        std::time::Duration::from_secs(10),
+        Duration::from_secs(15),
         3,
     )?;
 
-    download_cef::extract_target_archive(DEFAULT_TARGET, &archive, &install_dir, true)?;
+    println!("Extracting...");
+    let extracted = download_cef::extract_target_archive(
+        DEFAULT_TARGET,
+        &archive,
+        parent,
+        true,
+    )?;
 
-    println!("\n[+] CEF installed successfully");
-    println!("Location: {}", install_dir.display());
-    println!("You can now run: cargo run --example demo");
+    // Write archive.json
+    version.minimal()?.write_archive_json(&extracted)?;
+
+    // Replace existing install (if any)
+    if install_dir.exists() {
+        println!("Removing old install...");
+        std::fs::remove_dir_all(&install_dir)?;
+    }
+
+    println!("Installing to {}", install_dir.display());
+    std::fs::rename(&extracted, &install_dir)?;
+
+    let _ = std::fs::remove_file(&archive);
+
+    println!("\n[+] CEF installed at {}", install_dir.display());
+    print_env_instructions(&install_dir);
 
     Ok(())
 }
