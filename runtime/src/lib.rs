@@ -15,7 +15,6 @@ mod window;
 mod client;
 mod scheme;
 mod error;
-mod fs_pool;
 mod ipc_renderer;
 mod ipc_browser;
 
