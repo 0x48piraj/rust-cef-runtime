@@ -23,7 +23,7 @@ wrap_scheme_handler_factory! {
 
             Some(AppResourceHandler::new(
                 Arc::new(Mutex::new(Vec::new())),
-                Arc::new(Mutex::new(0)),
+                Arc::new(Mutex::new(0usize)),
                 Arc::new(Mutex::new(String::from("text/html"))),
                 Arc::new(AtomicI32::new(200)),
             ))
@@ -45,7 +45,7 @@ wrap_resource_handler! {
 
     impl ResourceHandler {
 
-        // Fully synchronous open
+        // Synchronous open
         fn open(
             &self,
             request: Option<&mut Request>,
