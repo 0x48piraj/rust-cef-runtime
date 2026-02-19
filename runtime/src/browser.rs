@@ -4,7 +4,6 @@
 //! so we guard creation using the shared window handle.
 
 use cef::*;
-use cef::rc::*;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 

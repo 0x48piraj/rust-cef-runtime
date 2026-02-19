@@ -1,7 +1,6 @@
 //! Root CEF application object.
 
 use cef::*;
-use cef::rc::*;
 use std::sync::{Arc, Mutex};
 use std::cell::RefCell;
 
@@ -52,8 +51,9 @@ wrap_app! {
 
             #[cfg(target_os="linux")]
             {
-                cmd.append_switch(Some(&CefString::from("use-gl=desktop")));
-                cmd.append_switch(Some(&CefString::from("enable-gpu-rasterization")));
+                cmd.append_switch(Some(&CefString::from("enable-gpu")));
+                cmd.append_switch(Some(&CefString::from("enable-webgl")));
+                cmd.append_switch(Some(&CefString::from("ignore-gpu-blocklist")));
             }
 
             #[cfg(target_os="macos")]

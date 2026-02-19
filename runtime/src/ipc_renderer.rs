@@ -2,7 +2,6 @@
 //! Transport uses ProcessMessage "ipc" and ListValue typed args.
 
 use cef::*;
-use cef::rc::*;
 use std::sync::Mutex;
 use std::collections::HashMap;
 

@@ -4,7 +4,6 @@
 //! browser view into the platform window.
 
 use cef::*;
-use cef::rc::*;
 use std::sync::{Arc, Mutex};
 
 wrap_window_delegate! {

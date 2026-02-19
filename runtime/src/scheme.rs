@@ -1,7 +1,6 @@
 //! app:// scheme support for local assets.
 
 use cef::*;
-use cef::rc::*;
 use std::sync::{Arc, Mutex};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
