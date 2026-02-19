@@ -45,6 +45,14 @@ impl App {
         }
     }
 
+    /// Start from an explicit URL (escape hatch for power users)
+    pub fn url(url: impl Into<String>) -> Self {
+        Self {
+            source: Source::Url(url.into()),
+            commands: Vec::new(),
+        }
+    }
+
     /// Load frontend from explicit directory (escape hatch for power users)
     pub fn path(path: impl Into<PathBuf>) -> Self {
         Self {
