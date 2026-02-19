@@ -34,7 +34,9 @@ wrap_browser_process_handler! {
                 let mut factory = crate::scheme::AppSchemeHandlerFactory::new();
 
                 // Register the scheme handler factory for app:// URLs
-                let result = register_scheme_handler_factory(
+                let global = request_context_get_global_context().unwrap();
+
+                let result = global.register_scheme_handler_factory(
                     Some(&CefString::from("app")),
                     Some(&CefString::from("app")),
                     Some(&mut factory),
