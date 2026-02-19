@@ -5,7 +5,6 @@ use std::sync::OnceLock;
 
 use crate::cef_app::DemoApp;
 use crate::error::RuntimeError;
-use crate::fs_pool;
 
 static ASSET_ROOT: OnceLock<PathBuf> = OnceLock::new();
 
@@ -27,27 +26,27 @@ impl Runtime {
             Self::validate_asset_root()?;
         }
 
-        fs_pool::init_worker_pool();
-
         #[cfg(target_os = "macos")]
         crate::platform::macos::init_ns_app();
 
         let _ = api_hash(sys::CEF_API_VERSION_LAST, 0);
 
         let args = Args::new();
-
         let window = Arc::new(Mutex::new(None));
+
+        // ONE app for ALL processes
         let mut app = DemoApp::new(window.clone(), start_url);
 
-        let ret = execute_process(
+        // CEF internally determines process role here
+        let exit_code = execute_process(
             Some(args.as_main_args()),
             Some(&mut app),
             std::ptr::null_mut(),
         );
 
-        // Subprocesses exit immediately
-        if ret >= 0 {
-            std::process::exit(ret);
+        // This was a subprocess and should exit now
+        if exit_code >= 0 {
+            std::process::exit(exit_code);
         }
 
         let exe = std::env::current_exe()
@@ -67,6 +66,22 @@ impl Runtime {
 
         let locales_dir = cef_root.join("locales");
 
+        // Use a persistent profile instead of CEF's default incognito mode.
+        // This enables cookies, storage APIs and service workers.
+
+        #[cfg(not(target_os = "macos"))]
+        let settings = Settings {
+            browser_subprocess_path: CefString::from(exe_str.as_ref()),
+            resources_dir_path: CefString::from(cef_root_str.as_ref()),
+            locales_dir_path: CefString::from(locales_dir.to_string_lossy().as_ref()),
+            cache_path: CefString::from(cache_dir.to_string_lossy().as_ref()),
+            root_cache_path: CefString::from(cache_dir.to_string_lossy().as_ref()),
+            persist_session_cookies: 1,
+            no_sandbox,
+
+            ..Default::default()
+        };
+
         #[cfg(target_os = "macos")]
         let settings = {
             let mut s = Settings {
@@ -77,6 +92,7 @@ impl Runtime {
                 root_cache_path: CefString::from(cache_dir.to_string_lossy().as_ref()),
                 persist_session_cookies: 1,
                 no_sandbox,
+
                 ..Default::default()
             };
 
@@ -84,20 +100,6 @@ impl Runtime {
             s.framework_dir_path = CefString::from(framework.to_string_lossy().as_ref());
 
             s
-        };
-
-        // Use a persistent profile instead of CEF's default incognito mode.
-        // This enables cookies, storage APIs and service workers.
-        #[cfg(not(target_os = "macos"))]
-        let settings = Settings {
-            browser_subprocess_path: CefString::from(exe_str.as_ref()),
-            resources_dir_path: CefString::from(cef_root_str.as_ref()),
-            locales_dir_path: CefString::from(locales_dir.to_string_lossy().as_ref()),
-            cache_path: CefString::from(cache_dir.to_string_lossy().as_ref()),
-            root_cache_path: CefString::from(cache_dir.to_string_lossy().as_ref()),
-            persist_session_cookies: 1,
-            no_sandbox,
-            ..Default::default()
         };
 
         if initialize(
