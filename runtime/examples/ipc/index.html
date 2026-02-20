@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>rust-cef-runtime IPC Demo</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+body{
+    margin:0;
+    font-family:system-ui;
+    background:#0f172a;
+    color:#e5e7eb;
+}
+header{
+    padding:20px;
+    border-bottom:1px solid #1f2937;
+}
+h1{margin:0;font-size:20px}
+.container{padding:20px;max-width:900px;margin:auto}
+
+.grid{
+display:grid;
+grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+gap:10px;
+margin-bottom:20px;
+}
+
+button{
+background:#2563eb;
+color:white;
+border:none;
+padding:12px;
+border-radius:8px;
+cursor:pointer;
+font-weight:600;
+}
+button:hover{background:#1d4ed8}
+
+pre{
+background:#020617;
+padding:16px;
+border-radius:8px;
+height:420px;
+overflow:auto;
+}
+
+.ok{color:#4ade80}
+.err{color:#f87171}
+.info{color:#93c5fd}
+.dim{color:#6b7280}
+</style>
+
+</head>
+
+<body>
+<header>
+<h1>rust-cef-runtime IPC demonstration</h1>
+</header>
+
+<div class="container">
+
+<div class="grid">
+<button onclick="demo.echo()">Echo object</button>
+<button onclick="demo.greet()">Greeting</button>
+<button onclick="demo.divide()">Divide numbers</button>
+<button onclick="demo.error()">Division error</button>
+<button onclick="demo.types()">Type inspection</button>
+<button onclick="demo.fs()">File read</button>
+<button onclick="demo.parallel()">Parallel 10</button>
+<button onclick="demo.slow()">Slow blocking</button>
+<button onclick="demo.batch()">Batch 100</button>
+<button onclick="clearLog()">Clear</button>
+</div>
+
+<pre id="log">runtime ready…</pre>
+
+</div>
+
+<script type="module">
+import { invoke } from "./rust-cef-runtime.js";
+
+const logEl = document.getElementById("log");
+
+function log(msg,cls="info"){
+logEl.innerHTML+=`\n<span class="${cls}">${msg}</span>`;
+logEl.scrollTop=logEl.scrollHeight;
+}
+const ok=m=>log("[OK] "+m,"ok");
+const err=m=>log("[ERROR] "+m,"err");
+
+window.clearLog=()=>logEl.textContent="";
+
+async function timed(name,fn){
+const t=performance.now();
+try{
+const r=await fn();
+const dt=(performance.now()-t).toFixed(2);
+ok(`${name} (${dt}ms)`);
+if(r!==undefined)log(JSON.stringify(r,null,2),"dim");
+}catch(e){
+err(`${name}: ${e}`);
+}
+}
+
+window.demo={
+
+echo(){
+timed("echo roundtrip",()=>invoke("echo",{hello:"world",n:42}));
+},
+
+greet(){
+timed("greet",()=>invoke("greet","Alice"));
+},
+
+divide(){
+timed("20 / 4",()=>invoke("divide",{a:20,b:4}));
+},
+
+error(){
+timed("division by zero",()=>invoke("divide",{a:1,b:0}));
+},
+
+types(){
+timed("type inspection",()=>invoke("types",{a:1,b:true,c:null,d:[1,2]}));
+},
+
+fs(){
+timed("fs.read config",()=>invoke("fs.read","config.json"));
+},
+
+parallel(){
+timed("parallel 10",async()=>{
+const arr=[];
+for(let i=0;i<10;i++)arr.push(invoke("echo",{id:i}));
+return await Promise.all(arr);
+});
+},
+
+slow(){
+timed("slow operation",()=>invoke("slow_operation",{payload:"demo"}));
+},
+
+batch(){
+timed("100 sequential calls",async()=>{
+for(let i=0;i<100;i++)
+await invoke("echo",{i});
+});
+}
+
+};
+
+// startup smoke test
+timed("startup check",()=>invoke("echo",{runtime:"online"}));
+
+</script>
+
+</body>
+</html>
