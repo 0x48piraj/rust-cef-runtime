@@ -64,11 +64,15 @@ impl PromiseRegistry {
                 return;
             }
 
+            let mut owned = data.to_vec();
+
             let mut buf = v8_value_create_array_buffer(
-                data.as_ptr() as *mut _,
-                data.len(),
+                owned.as_mut_ptr() as *mut _,
+                owned.len(),
                 None
             ).unwrap();
+
+            std::mem::forget(owned);
 
             promise.resolve_promise(Some(&mut buf));
 
