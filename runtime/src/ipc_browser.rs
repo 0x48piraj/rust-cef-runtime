@@ -233,7 +233,7 @@ pub fn handle_ipc_message(
             if let Some(binary) = args.binary(3) {
 
                 let size = binary.size();
-                let mut buf = Vec::with_capacity(size);
+                let mut buf = vec![0u8; size];
 
                 binary.data(Some(&mut buf), 0);
 

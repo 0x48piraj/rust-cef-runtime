@@ -250,7 +250,7 @@ wrap_render_process_handler! {
                     if let Some(binary) = args.binary(2) {
 
                         let size = binary.size();
-                        let mut buf = Vec::with_capacity(size);
+                        let mut buf = vec![0u8; size];
 
                         binary.data(Some(&mut buf), 0);
 
@@ -306,8 +306,8 @@ wrap_v8_handler! {
             }
 
             // first arg: command string
-            let cmd = match &args[0] {
-                Some(v) if v.is_string() != 0 => {
+            let cmd = match args.get(0) {
+                Some(Some(v)) if v.is_string() != 0 => {
                     let s = v.string_value();
                     let cef: CefString = (&s).into();
                     cef.to_string()
@@ -321,13 +321,14 @@ wrap_v8_handler! {
             };
 
             // optional payload (string)
-            let payload = if args.len() > 1 {
-                if let Some(Some(v)) = args.get(1) {
+            let payload = match args.get(1) {
+                Some(Some(v)) if v.is_string() != 0 => {
                     let s = v.string_value();
                     let cef: CefString = (&s).into();
                     cef.to_string()
-                } else { String::new() }
-            } else { String::new() };
+                }
+                _ => String::new(),
+            };
 
             let context = v8_context_get_current_context().unwrap();
             let promise = v8_value_create_promise().unwrap();
@@ -372,7 +373,7 @@ wrap_v8_handler! {
             _object: Option<&mut V8Value>,
             arguments: Option<&[Option<V8Value>]>,
             retval: Option<&mut Option<V8Value>>,
-            _exception: Option<&mut CefString>,
+            exception: Option<&mut CefString>,
         ) -> i32 {
 
             let args = match arguments {
@@ -390,8 +391,6 @@ wrap_v8_handler! {
                 let c: CefString = (&s).into();
                 c.to_string()
             };
-
-            let buffer = args[1].as_ref().unwrap();
 
             let buffer = match args.get(1) {
                 Some(Some(v)) if v.is_array_buffer() != 0 => v,
