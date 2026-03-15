@@ -5,7 +5,12 @@ use cef::*;
 use std::sync::Mutex;
 use std::collections::HashMap;
 
-/// Tracks pending promises awaiting responses from the browser process
+use crate::ipc_shm::{SharedBuffer, SHM_THRESHOLD};
+
+//
+// Promise registry: Tracks pending promises awaiting responses from the browser process
+//
+
 struct PromiseRegistry {
     next_id: u32,
     pending: HashMap<u32, (V8Context, V8Value)>,
@@ -22,11 +27,13 @@ impl PromiseRegistry {
     fn register(&mut self, context: V8Context, promise: V8Value) -> u32 {
         let id = self.next_id;
         self.next_id = self.next_id.wrapping_add(1);
+
         self.pending.insert(id, (context, promise));
         id
     }
 
-    fn resolve(&mut self, id: u32, success: bool, result: &str) {
+    fn resolve_string(&mut self, id: u32, success: bool, result: &str) {
+
         if let Some((context, promise)) = self.pending.remove(&id) {
             if context.enter() == 0 {
                 eprintln!("Failed to enter V8 context for promise resolution");
@@ -49,6 +56,25 @@ impl PromiseRegistry {
             eprintln!("[IPC WARNING] received response for missing promise id={} (likely page reload)", id);
         }
     }
+
+    fn resolve_binary(&mut self, id: u32, data: &[u8]) {
+        if let Some((context, promise)) = self.pending.remove(&id) {
+
+            if context.enter() == 0 {
+                return;
+            }
+
+            let mut buf = v8_value_create_array_buffer(
+                data.as_ptr() as *mut _,
+                data.len(),
+                None
+            ).unwrap();
+
+            promise.resolve_promise(Some(&mut buf));
+
+            context.exit();
+        }
+    }
 }
 
 static PROMISE_REGISTRY: Mutex<Option<PromiseRegistry>> = Mutex::new(None);
@@ -61,11 +87,30 @@ fn ensure_registry() {
 }
 
 fn register_promise(ctx: V8Context, promise: V8Value) -> u32 {
-    PROMISE_REGISTRY.lock().unwrap().as_mut().unwrap().register(ctx, promise)
+    PROMISE_REGISTRY
+        .lock()
+        .unwrap()
+        .as_mut()
+        .unwrap()
+        .register(ctx, promise)
 }
 
-fn resolve_promise(id: u32, success: bool, payload: &str) {
-    PROMISE_REGISTRY.lock().unwrap().as_mut().unwrap().resolve(id, success, payload)
+fn resolve_string(id: u32, success: bool, payload: &str) {
+    PROMISE_REGISTRY
+        .lock()
+        .unwrap()
+        .as_mut()
+        .unwrap()
+        .resolve_string(id, success, payload)
+}
+
+fn resolve_binary(id: u32, payload: &[u8]) {
+    PROMISE_REGISTRY
+        .lock()
+        .unwrap()
+        .as_mut()
+        .unwrap()
+        .resolve_binary(id, payload)
 }
 
 fn clear_context_promises(ctx: &V8Context) {
@@ -95,7 +140,7 @@ fn list_string(args: &ListValue, idx: usize) -> String {
 }
 
 //
-// Renderer handler
+// Renderer process handler
 //
 
 wrap_render_process_handler! {
@@ -116,6 +161,10 @@ wrap_render_process_handler! {
 
             let mut core = v8_value_create_object(None, None).unwrap();
 
+            //
+            // JSON invoke
+            //
+
             let mut handler = IpcInvokeHandler::new();
             let mut invoke = v8_value_create_function(
                 Some(&CefString::from("invoke")),
@@ -128,13 +177,30 @@ wrap_render_process_handler! {
                 V8Propertyattribute::default(),
             );
 
+            //
+            // Binary invoke
+            //
+
+            let mut handler = IpcInvokeBinaryHandler::new();
+
+            let mut invoke_binary = v8_value_create_function(
+                Some(&CefString::from("invokeBinary")),
+                Some(&mut handler),
+            ).unwrap();
+
+            core.set_value_bykey(
+                Some(&CefString::from("invokeBinary")),
+                Some(&mut invoke_binary),
+                V8Propertyattribute::default(),
+            );
+
             global.set_value_bykey(
                 Some(&CefString::from("core")),
                 Some(&mut core),
                 V8Propertyattribute::default(),
             );
 
-            println!("[Renderer] Injected window.core.invoke");
+            println!("[Renderer] Injected window.core.invoke + invokeBinary");
         }
 
         fn on_context_released(
@@ -167,11 +233,39 @@ wrap_render_process_handler! {
 
             let msg_type = list_int(&args, 0);
             let id = list_int(&args, 1) as u32;
-            let payload = list_string(&args, 2);
 
             match msg_type {
-                1 => resolve_promise(id, true, &payload),
-                2 => resolve_promise(id, false, &payload),
+                1 => {
+                    let payload = list_string(&args, 2);
+                    resolve_string(id, true, &payload);
+                }
+
+                2 => {
+                    let payload = list_string(&args, 2);
+                    resolve_string(id, false, &payload);
+                }
+
+                4 => {
+
+                    if let Some(binary) = args.binary(2) {
+
+                        let size = binary.size();
+                        let mut buf = Vec::with_capacity(size);
+
+                        binary.data(Some(&mut buf), 0);
+
+                        resolve_binary(id, &buf);
+                    } else {
+
+                        let name = list_string(&args, 2);
+                        let size = list_int(&args, 3) as usize;
+
+                        let shm = SharedBuffer::open(&name, size);
+
+                        resolve_binary(id, shm.as_slice());
+                    }
+                }
+
                 _ => {
                     eprintln!("[IPC ERROR] invalid message type {} from browser", msg_type);
                 }
@@ -183,7 +277,7 @@ wrap_render_process_handler! {
 }
 
 //
-// JS invoke
+// JSON invoke
 //
 
 wrap_v8_handler! {
@@ -252,6 +346,108 @@ wrap_v8_handler! {
                 args.set_string(3, Some(&CefString::from(payload.as_str())));
 
                 frame.send_process_message(ProcessId::BROWSER, Some(&mut msg));
+            }
+
+            if let Some(ret) = retval {
+                *ret = Some(promise);
+            }
+
+            1
+        }
+    }
+}
+
+//
+// Binary invoke
+//
+
+wrap_v8_handler! {
+    pub struct IpcInvokeBinaryHandler;
+
+    impl V8Handler {
+
+        fn execute(
+            &self,
+            _name: Option<&CefString>,
+            _object: Option<&mut V8Value>,
+            arguments: Option<&[Option<V8Value>]>,
+            retval: Option<&mut Option<V8Value>>,
+            _exception: Option<&mut CefString>,
+        ) -> i32 {
+
+            let args = match arguments {
+                Some(a) => a,
+                None => return 0,
+            };
+
+            if args.len() < 2 {
+                return 0;
+            }
+
+            let cmd = {
+
+                let s = args[0].as_ref().unwrap().string_value();
+                let c: CefString = (&s).into();
+                c.to_string()
+            };
+
+            let buffer = args[1].as_ref().unwrap();
+
+            let buffer = match args.get(1) {
+                Some(Some(v)) if v.is_array_buffer() != 0 => v,
+                _ => {
+                    if let Some(exc) = exception {
+                        *exc = CefString::from("second argument must be an ArrayBuffer");
+                    }
+                    return 0;
+                }
+            };
+
+            let ptr = buffer.array_buffer_data();
+            let len = buffer.array_buffer_byte_length();
+
+            let data = unsafe {
+                std::slice::from_raw_parts(ptr as *const u8, len)
+            };
+
+            let context = v8_context_get_current_context().unwrap();
+            let promise = v8_value_create_promise().unwrap();
+
+            let id = register_promise(context.clone(), promise.clone());
+
+            let mut msg =
+                process_message_create(Some(&CefString::from("ipc")))
+                    .unwrap();
+
+            let list = msg.argument_list().unwrap();
+
+            list.set_int(0, 3);
+            list.set_int(1, id as i32);
+            list.set_string(2, Some(&CefString::from(cmd.as_str())));
+
+            if data.len() < SHM_THRESHOLD {
+
+                let mut binary =
+                    binary_value_create(Some(data))
+                        .unwrap();
+
+                list.set_binary(3, Some(&mut binary));
+
+            } else {
+
+                let mut shm = SharedBuffer::create(data.len());
+                shm.write(data);
+
+                let name = shm.name();
+                list.set_string(3, Some(&CefString::from(name.as_str())));
+                list.set_int(4, data.len() as i32);
+            }
+
+            if let Some(frame) = context.frame() {
+                frame.send_process_message(
+                    ProcessId::BROWSER,
+                    Some(&mut msg),
+                );
             }
 
             if let Some(ret) = retval {

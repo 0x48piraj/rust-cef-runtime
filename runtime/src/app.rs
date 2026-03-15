@@ -6,12 +6,15 @@
 use std::path::PathBuf;
 use serde_json::Value;
 
-use crate::{Runtime, RuntimeError, register_command};
+use crate::{Runtime, RuntimeError, register_command, register_binary_command};
 
 mod resolver;
 
 type CommandHandler =
     Box<dyn Fn(Value) -> Result<Value, String> + Send + Sync + 'static>;
+
+type BinaryCommandHandler =
+    Box<dyn Fn(&[u8]) -> Result<Vec<u8>, String> + Send + Sync + 'static>;
 
 /// Describes where the frontend comes from
 enum Source {
@@ -26,6 +29,7 @@ enum Source {
 pub struct App {
     source: Source,
     commands: Vec<(String, CommandHandler)>,
+    binary_commands: Vec<(String, BinaryCommandHandler)>,
 }
 
 impl App {
@@ -42,6 +46,7 @@ impl App {
         Self {
             source,
             commands: Vec::new(),
+            binary_commands: Vec::new(),
         }
     }
 
@@ -50,6 +55,7 @@ impl App {
         Self {
             source: Source::Url(url.into()),
             commands: Vec::new(),
+            binary_commands: Vec::new(),
         }
     }
 
@@ -58,6 +64,7 @@ impl App {
         Self {
             source: Source::Path(path.into()),
             commands: Vec::new(),
+            binary_commands: Vec::new(),
         }
     }
 
@@ -67,6 +74,19 @@ impl App {
         F: Fn(Value) -> Result<Value, String> + Send + Sync + 'static,
     {
         self.commands.push((name.into(), Box::new(handler)));
+        self
+    }
+
+    pub fn command_binary<F>(
+        mut self,
+        name: impl Into<String>,
+        handler: F,
+    ) -> Self
+    where
+        F: Fn(&[u8]) -> Result<Vec<u8>, String> + Send + Sync + 'static,
+    {
+        self.binary_commands
+            .push((name.into(), Box::new(handler)));
         self
     }
 
@@ -82,6 +102,10 @@ impl App {
 
         for (name, handler) in self.commands {
             register_command(name, handler);
+        }
+
+        for (name, handler) in self.binary_commands {
+            register_binary_command(name, handler);
         }
 
         Runtime::run(url, require_assets)

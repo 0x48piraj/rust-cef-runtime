@@ -8,11 +8,17 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::collections::HashMap;
 use serde_json::Value;
 
+use crate::ipc_shm::{SharedBuffer, SHM_THRESHOLD};
+
 pub type IpcResult = Result<String, String>;
 pub type IpcHandler = Box<dyn Fn(&str) -> IpcResult + Send + Sync>;
 
+pub type BinaryHandler =
+    Box<dyn Fn(&[u8]) -> Result<Vec<u8>, String> + Send + Sync>;
+
 pub struct IpcDispatcher {
     handlers: HashMap<String, IpcHandler>,
+    binary_handlers: HashMap<String, BinaryHandler>,
 }
 
 struct PendingCall {
@@ -22,11 +28,22 @@ struct PendingCall {
 
 impl IpcDispatcher {
     fn new() -> Self {
-        Self { handlers: HashMap::new() }
+        Self {
+            handlers: HashMap::new(),
+            binary_handlers: HashMap::new(),
+        }
     }
 
     pub fn register(&mut self, command: impl Into<String>, handler: IpcHandler) {
         self.handlers.insert(command.into(), handler);
+    }
+
+    pub fn register_binary(
+        &mut self,
+        command: impl Into<String>,
+        handler: BinaryHandler,
+    ) {
+        self.binary_handlers.insert(command.into(), handler);
     }
 
     fn dispatch(&self, command: &str, payload: &str) -> IpcResult {
@@ -34,6 +51,18 @@ impl IpcDispatcher {
             handler(payload)
         } else {
             Err(format!("[IPC] Unknown command '{}'", command))
+        }
+    }
+
+    fn dispatch_binary(
+        &self,
+        command: &str,
+        payload: &[u8],
+    ) -> Result<Vec<u8>, String> {
+        if let Some(handler) = self.binary_handlers.get(command) {
+            handler(payload)
+        } else {
+            Err(format!("Unknown binary command '{}'", command))
         }
     }
 }
@@ -58,7 +87,7 @@ fn pending_commands() -> &'static Mutex<Vec<(String, IpcHandler)>> {
     PENDING_COMMANDS.get_or_init(|| Mutex::new(Vec::new()))
 }
 
-/// Called by runtime when browser process initializes.
+/// Dispatcher init: Called by runtime when browser process initializes.
 /// Drains any commands registered before init.
 pub fn init_dispatcher() -> Arc<Mutex<IpcDispatcher>> {
     let dispatcher = DISPATCHER
@@ -108,7 +137,25 @@ where
 }
 
 //
-// Message handling (structured transport using ProcessMessage + ListValue)
+// Binary API
+//
+
+pub fn register_binary_command<F>(
+    command: impl Into<String>,
+    handler: F,
+)
+where
+    F: Fn(&[u8]) -> Result<Vec<u8>, String> + Send + Sync + 'static,
+{
+    let wrapped: BinaryHandler = Box::new(handler);
+
+    if let Some(dispatcher) = DISPATCHER.get() {
+        dispatcher.lock().unwrap().register_binary(command.into(), wrapped);
+    }
+}
+
+//
+// Message helpers
 //
 
 fn list_get_int(args: &ListValue, idx: usize) -> i32 {
@@ -123,6 +170,10 @@ fn list_get_string(args: &ListValue, idx: usize) -> String {
     let cef: CefString = (&userfree).into();
     cef.to_string()
 }
+
+//
+// IPC message handling
+//
 
 pub fn handle_ipc_message(
     _browser: &mut Browser,
@@ -141,33 +192,79 @@ pub fn handle_ipc_message(
 
     // Message type: 0 = invoke, 1 = resolve (browser shouldn't receive), 2 = reject
     let msg_type = list_get_int(&args, 0);
-    if msg_type != 0 {
-        // Browser only handles invokes
-        return false;
+
+    match msg_type {
+
+        // JSON invoke
+        0 => {
+            let id = list_get_int(&args, 1) as u32;
+            let command = list_get_string(&args, 2);
+            let payload = list_get_string(&args, 3);
+
+            println!("[Browser] IPC invoke: '{}' (id={})", command, id);
+
+            let dispatcher = get_dispatcher();
+            let result = dispatcher.lock().unwrap().dispatch(&command, &payload);
+
+            let frame_id = {
+                let s: CefString = (&frame.identifier()).into();
+                s.to_string()
+            };
+
+            pending_calls().lock().unwrap().insert(
+                id,
+                PendingCall {
+                    frame: frame.clone(),
+                    frame_id,
+                },
+            );
+
+            send_response(id, result);
+            true
+        }
+
+        // Binary invoke
+        3 => {
+            let id = list_get_int(&args, 1) as u32;
+            let command = list_get_string(&args, 2);
+
+            let data: Vec<u8>;
+
+            if let Some(binary) = args.binary(3) {
+
+                let size = binary.size();
+                let mut buf = Vec::with_capacity(size);
+
+                binary.data(Some(&mut buf), 0);
+
+                data = buf;
+            } else {
+                let name = list_get_string(&args, 3);
+                let size = list_get_int(&args, 4) as usize;
+
+                let shm = SharedBuffer::open(&name, size);
+                data = shm.as_slice().to_vec();
+            }
+
+            let dispatcher = get_dispatcher();
+
+            let result = dispatcher
+                .lock()
+                .unwrap()
+                .dispatch_binary(&command, &data);
+
+            send_binary_response(id, result, frame);
+
+            true
+        }
+
+        _ => false,
     }
-
-    let id = list_get_int(&args, 1) as u32;
-    let command = list_get_string(&args, 2);
-    let payload = list_get_string(&args, 3);
-
-    println!("[Browser] IPC invoke: '{}' (id={})", command, id);
-
-    let dispatcher = get_dispatcher();
-    let result = dispatcher.lock().unwrap().dispatch(&command, &payload);
-
-    let frame_id = {
-        let s: CefString = (&frame.identifier()).into();
-        s.to_string()
-    };
-
-    pending_calls().lock().unwrap().insert(id, PendingCall {
-        frame: frame.clone(),
-        frame_id,
-    });
-
-    send_response(id, result);
-    true
 }
+
+//
+// JSON response
+//
 
 fn send_response(id: u32, result: IpcResult)
 {
@@ -207,6 +304,7 @@ fn send_response(id: u32, result: IpcResult)
             args.set_int(1, id as i32);
             args.set_string(2, Some(&CefString::from(payload.as_str())));
         }
+
         Err(err) => {
             args.set_int(0, 2); // reject
             args.set_int(1, id as i32);
@@ -215,4 +313,52 @@ fn send_response(id: u32, result: IpcResult)
     }
 
     call.frame.send_process_message(ProcessId::RENDERER, Some(&mut msg));
+}
+
+//
+// Binary response
+//
+
+fn send_binary_response(
+    id: u32,
+    result: Result<Vec<u8>, String>,
+    frame: &Frame,
+) {
+    let mut msg =
+        process_message_create(Some(&CefString::from("ipc"))).unwrap();
+
+    let args = msg.argument_list().unwrap();
+
+    match result {
+
+        Ok(data) => {
+            args.set_int(0, 4);
+            args.set_int(1, id as i32);
+
+            if data.len() < SHM_THRESHOLD {
+
+                let mut binary =
+                    binary_value_create(Some(data.as_slice())).unwrap();
+
+                args.set_binary(2, Some(&mut binary));
+
+            } else {
+
+                let mut shm = SharedBuffer::create(data.len());
+                shm.write(&data);
+
+                let name = shm.name();
+                args.set_string(2, Some(&CefString::from(name.as_str())));
+                args.set_int(3, data.len() as i32);
+            }
+        }
+
+        Err(err) => {
+            args.set_int(0, 2); // reject
+            args.set_int(1, id as i32);
+            args.set_string(2, Some(&CefString::from(err.as_str())));
+        }
+    }
+
+    frame.send_process_message(ProcessId::RENDERER, Some(&mut msg));
 }
