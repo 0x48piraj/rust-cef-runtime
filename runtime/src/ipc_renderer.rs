@@ -320,6 +320,13 @@ wrap_v8_handler! {
                 }
             };
 
+            if cmd.is_empty() {
+                if let Some(exc) = exception {
+                    *exc = CefString::from("command cannot be empty");
+                }
+                return 0;
+            }
+
             // optional payload (string)
             let payload = match args.get(1) {
                 Some(Some(v)) if v.is_string() != 0 => {
@@ -385,11 +392,18 @@ wrap_v8_handler! {
                 return 0;
             }
 
-            let cmd = {
-
-                let s = args[0].as_ref().unwrap().string_value();
-                let c: CefString = (&s).into();
-                c.to_string()
+            let cmd = match args.get(0) {
+                Some(Some(v)) if v.is_string() != 0 => {
+                    let s = v.string_value();
+                    let c: CefString = (&s).into();
+                    c.to_string()
+                }
+                _ => {
+                    if let Some(exc) = exception {
+                        *exc = CefString::from("command must be a string");
+                    }
+                    return 0;
+                }
             };
 
             let buffer = match args.get(1) {
