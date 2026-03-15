@@ -257,7 +257,10 @@ wrap_render_process_handler! {
                         let size = binary.size();
                         let mut buf = vec![0u8; size];
 
-                        binary.data(Some(&mut buf), 0);
+                        let written = binary.data(Some(&mut buf), 0);
+                        buf.truncate(written);
+
+                        debug!("binary.size={} written={}", size, written); // TODO: remove after testing
 
                         resolve_binary(id, &buf);
                     } else {
