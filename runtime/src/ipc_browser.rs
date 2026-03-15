@@ -205,7 +205,14 @@ pub fn handle_ipc_message(
             debug!("[Browser] IPC invoke: '{}' (id={})", command, id);
 
             let dispatcher = get_dispatcher();
-            let result = dispatcher.lock().unwrap().dispatch(&command, &payload);
+            let result = std::panic::catch_unwind(|| {
+                dispatcher.lock().unwrap().dispatch(&command, &payload)
+            });
+
+            let result = match result {
+                Ok(r) => r,
+                Err(_) => Err("IPC handler panicked".to_string()),
+            };
 
             let frame_id = {
                 let s: CefString = (&frame.identifier()).into();
@@ -236,7 +243,10 @@ pub fn handle_ipc_message(
                 let size = binary.size();
                 let mut buf = vec![0u8; size];
 
-                binary.data(Some(&mut buf), 0);
+                let written = binary.data(Some(&mut buf), 0);
+                buf.truncate(written);
+
+                debug!("binary.size={} written={}", size, written); // TODO: remove after testing
 
                 data = buf;
             } else {
@@ -249,10 +259,17 @@ pub fn handle_ipc_message(
 
             let dispatcher = get_dispatcher();
 
-            let result = dispatcher
-                .lock()
-                .unwrap()
-                .dispatch_binary(&command, &data);
+            let result = std::panic::catch_unwind(|| {
+                dispatcher
+                    .lock()
+                    .unwrap()
+                    .dispatch_binary(&command, &data)
+            });
+
+            let result = match result {
+                Ok(r) => r,
+                Err(_) => Err("Binary IPC handler panicked".to_string()),
+            };
 
             send_binary_response(id, result, frame);
 
