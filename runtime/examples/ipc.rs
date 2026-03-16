@@ -74,5 +74,9 @@ App::new("ipc")
             "is_null": payload.is_null(),
         }))
     })
+
+    .binary_command("echo_binary", |data: &[u8]| {
+        Ok(data.to_vec())
+    })
     .run_or_exit();
 }
