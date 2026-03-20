@@ -264,10 +264,11 @@ wrap_render_process_handler! {
                         let name = list_string(&args, 2);
                         let size = list_int(&args, 3) as usize;
 
-                        // Copy data before dropping the SHM mapping
-                        let data_vec = match SharedBuffer::open(&name, size) {
-                            Ok(shm)  => shm.as_slice().to_vec(),
-                            Err(e)   => {
+                        // Pass SHM slice directly; V8 performs the copy internally
+                        // V8 copies the data during resolve; SHM must remain valid until then
+                        let shm = match SharedBuffer::open(&name, size) {
+                            Ok(s) => s,
+                            Err(e) => {
                                 eprintln!("[IPC] SHM open failed for id={}: {}", id, e);
                                 PromiseRegistry::resolve_string(id, false, &format!("shm transport error: {}", e));
                                 if let Some(f) = frame { send_shm_free(id, f); }
@@ -275,7 +276,7 @@ wrap_render_process_handler! {
                             }
                         };
 
-                        PromiseRegistry::resolve_binary(id, &data_vec);
+                        PromiseRegistry::resolve_binary(id, shm.as_slice());
 
                         // Notify browser it can release the SHM buffer
                         if let Some(f) = frame {
