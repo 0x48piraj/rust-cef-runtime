@@ -28,42 +28,50 @@ impl PromiseRegistry {
         id
     }
 
-    fn resolve_string(&mut self, id: u32, success: bool, result: &str) {
+    fn resolve_string(id: u32, success: bool, payload: &str) {
+        // Remove entry under lock; drop it before touching V8.
+        // Holding the mutex across context.exit() can deadlock due to microtask reentrancy.
+        let entry = {
+            registry().lock().unwrap().pending.remove(&id)
+        };
 
-        if let Some((context, promise)) = self.pending.remove(&id) {
-            if context.enter() == 0 {
-                eprintln!("[IPC] Failed to enter V8 context for promise id={}", id);
-                return;
+        match entry {
+            None => {
+                eprintln!("[IPC WARNING] response for unknown promise id={} (likely page reload)", id);
             }
-
-            let s = CefString::from(result);
-
-            if success {
-                // resolve promise with string value
-                let mut v = v8_value_create_string(Some(&s)).unwrap();
-                promise.resolve_promise(Some(&mut v));
-            } else {
-                // reject with exception string
-                promise.reject_promise(Some(&s));
+            Some((context, promise)) => {
+                if context.enter() == 0 {
+                    eprintln!("[IPC] Failed to enter V8 context for promise id={}", id);
+                    return;
+                }
+                let s = CefString::from(payload);
+                if success {
+                    let mut v = v8_value_create_string(Some(&s)).unwrap();
+                    promise.resolve_promise(Some(&mut v));
+                } else {
+                    promise.reject_promise(Some(&s));
+                }
+                context.exit(); // microtask checkpoint fires; lock is not held
             }
-
-            context.exit();
-        } else {
-            eprintln!("[IPC WARNING] response for unknown promise id={} (likely page reload)", id);
         }
     }
 
-    fn resolve_binary(&mut self, id: u32, data: &[u8]) {
-        if let Some((context, promise)) = self.pending.remove(&id) {
-            if context.enter() == 0 { return; }
+    fn resolve_binary(id: u32, payload: &[u8]) {
+        let entry = registry().lock().unwrap().pending.remove(&id);
+
+        if let Some((context, promise)) = entry {
+            if context.enter() == 0 {
+                eprintln!("[IPC] Failed to enter V8 context for binary promise id={}", id);
+                return;
+            }
             let mut buf = v8_value_create_array_buffer_with_copy(
-                data.as_ptr() as *mut u8,
-                data.len(),
+                payload.as_ptr() as *mut u8,
+                payload.len(),
             ).unwrap();
 
             promise.resolve_promise(Some(&mut buf));
 
-            context.exit();
+            context.exit(); // safe; lock not held
         }
     }
 }
@@ -80,14 +88,6 @@ fn registry() -> &'static Mutex<PromiseRegistry> {
 
 fn register_promise(ctx: V8Context, promise: V8Value) -> u32 {
     registry().lock().unwrap().register(ctx, promise)
-}
-
-fn resolve_string(id: u32, success: bool, payload: &str) {
-    registry().lock().unwrap().resolve_string(id, success, payload)
-}
-
-fn resolve_binary(id: u32, payload: &[u8]) {
-    registry().lock().unwrap().resolve_binary(id, payload)
 }
 
 fn clear_context_promises(ctx: &V8Context) {
@@ -107,6 +107,12 @@ fn clear_context_promises(ctx: &V8Context) {
 //
 
 static OUTGOING_SHM: OnceLock<Mutex<HashMap<u32, SharedBuffer>>> = OnceLock::new();
+
+static RENDERER_FRAME: OnceLock<Mutex<Option<Frame>>> = OnceLock::new();
+
+fn renderer_frame() -> &'static Mutex<Option<Frame>> {
+    RENDERER_FRAME.get_or_init(|| Mutex::new(None))
+}
 
 fn outgoing_shm() -> &'static Mutex<HashMap<u32, SharedBuffer>> {
     OUTGOING_SHM.get_or_init(|| Mutex::new(HashMap::new()))
@@ -145,12 +151,16 @@ wrap_render_process_handler! {
         fn on_context_created(
             &self,
             _browser: Option<&mut Browser>,
-            _frame: Option<&mut Frame>,
+            frame: Option<&mut Frame>,
             context: Option<&mut V8Context>,
         ) {
             ensure_registry();
 
             let context = context.unwrap();
+            let frame = frame.unwrap();
+
+            *renderer_frame().lock().unwrap() = Some(frame.clone());
+
             let global = context.global().unwrap();
 
             let mut core = v8_value_create_object(None, None).unwrap();
@@ -199,6 +209,7 @@ wrap_render_process_handler! {
             if let Some(ctx) = context {
                 clear_context_promises(ctx);
             }
+            *renderer_frame().lock().unwrap() = None;
         }
 
         fn on_process_message_received(
@@ -224,13 +235,13 @@ wrap_render_process_handler! {
                     // Release outgoing SHM; browser has read it and responded
                     outgoing_shm().lock().unwrap().remove(&id);
                     let payload = list_string(&args, 2);
-                    resolve_string(id, true, &payload);
+                    PromiseRegistry::resolve_string(id, true, &payload);
                 }
 
                 2 => {
                     outgoing_shm().lock().unwrap().remove(&id);
                     let payload = list_string(&args, 2);
-                    resolve_string(id, false, &payload);
+                    PromiseRegistry::resolve_string(id, false, &payload);
                 }
 
                 4 => {
@@ -247,7 +258,7 @@ wrap_render_process_handler! {
 
                         debug!("[Renderer] inline binary response: {} bytes", written);
 
-                        resolve_binary(id, &buf);
+                        PromiseRegistry::resolve_binary(id, &buf);
                     } else {
                         // Browser used SHM for this response
                         let name = list_string(&args, 2);
@@ -258,13 +269,13 @@ wrap_render_process_handler! {
                             Ok(shm)  => shm.as_slice().to_vec(),
                             Err(e)   => {
                                 eprintln!("[IPC] SHM open failed for id={}: {}", id, e);
-                                resolve_string(id, false, &format!("shm transport error: {}", e));
+                                PromiseRegistry::resolve_string(id, false, &format!("shm transport error: {}", e));
                                 if let Some(f) = frame { send_shm_free(id, f); }
                                 return 1;
                             }
                         };
 
-                        resolve_binary(id, &data_vec);
+                        PromiseRegistry::resolve_binary(id, &data_vec);
 
                         // Notify browser it can release the SHM buffer
                         if let Some(f) = frame {
@@ -336,15 +347,24 @@ wrap_v8_handler! {
                 _ => String::new(),
             };
 
-            let context = v8_context_get_current_context().unwrap();
+            let context = match v8_context_get_current_context() {
+                Some(ctx) => ctx,
+                None => {
+                    if let Some(exc) = exception {
+                        *exc = CefString::from("invoke: no active renderer context");
+                    }
+                    return 0;
+                }
+            };
             let promise = v8_value_create_promise().unwrap();
 
             let id = register_promise(context.clone(), promise.clone());
 
             debug!("[Renderer] JS invoke: '{}' (id={})", cmd, id);
 
-            if let Some(frame) = context.frame() {
-                let mut msg  = process_message_create(Some(&CefString::from("ipc"))).unwrap();
+            // Use the captured frame
+            if let Some(frame) = renderer_frame().lock().unwrap().clone() {
+                let mut msg = process_message_create(Some(&CefString::from("ipc"))).unwrap();
                 let msg_args = msg.argument_list().unwrap();
 
                 msg_args.set_int(0, 0);
@@ -429,7 +449,15 @@ wrap_v8_handler! {
                 std::slice::from_raw_parts(ptr as *const u8, len)
             };
 
-            let context = v8_context_get_current_context().unwrap();
+            let context = match v8_context_get_current_context() {
+                Some(ctx) => ctx,
+                None => {
+                    if let Some(exc) = exception {
+                        *exc = CefString::from("invokeBinary: no active renderer context");
+                    }
+                    return 0;
+                }
+            };
             let promise = v8_value_create_promise().unwrap();
 
             let id = register_promise(context.clone(), promise.clone());
@@ -456,7 +484,7 @@ wrap_v8_handler! {
                 outgoing_shm().lock().unwrap().insert(id, shm);
             }
 
-            if let Some(frame) = context.frame() {
+            if let Some(frame) = renderer_frame().lock().unwrap().clone() {
                 frame.send_process_message(ProcessId::BROWSER, Some(&mut msg));
             }
 
