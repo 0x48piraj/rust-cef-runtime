@@ -8,7 +8,7 @@ mod init;
 
 #[derive(Parser)]
 #[command(name = "kurogane")]
-#[command(about = "Kurogane CLI", version)]
+#[command(about = "Kurogane: Chromium runtime for building high-performance apps", version)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -20,7 +20,10 @@ enum Commands {
     Dev,
     Build,
     Bundle,
-    Init,
+    Init {
+        #[arg(long)]
+        template: Option<String>,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -31,6 +34,6 @@ fn main() -> anyhow::Result<()> {
         Commands::Dev => dev::run(),
         Commands::Build => build::run(),
         Commands::Bundle => bundle::run(),
-        Commands::Init => init::run(),
+        Commands::Init { template } => init::run(template),
     }
 }

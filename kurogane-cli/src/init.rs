@@ -1,9 +1,14 @@
-use anyhow::Result;
+use anyhow::{Result, bail};
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-pub fn run() -> Result<()> {
+use include_dir::{include_dir, Dir};
+
+// Embed templates into the binary
+static TEMPLATES: Dir = include_dir!("$CARGO_MANIFEST_DIR/templates");
+
+pub fn run(template: Option<String>) -> Result<()> {
     println!("Kurogane project setup");
 
     // Ask project name
@@ -14,91 +19,38 @@ pub fn run() -> Result<()> {
     io::stdin().read_line(&mut name)?;
     let name = name.trim();
 
+    if name.is_empty() {
+        bail!("[!] Project name cannot be empty.");
+    }
+
     let root = Path::new(name);
 
     if root.exists() {
-        anyhow::bail!("Directory already exists");
+        bail!("[!] Directory already exists.");
     }
 
-    // Create structure
-    fs::create_dir_all(root.join("src"))?;
-    fs::create_dir_all(root.join("content"))?;
+    // Choose template
+    let template = template.unwrap_or_else(|| "vanilla".to_string());
+
+    // Extract template from embedded assets
+    extract_template(&template, root)?;
+
+    // .cargo/config.toml
     fs::create_dir_all(root.join(".cargo"))?;
 
-    // Cargo.toml
-    fs::write(
-        root.join("Cargo.toml"),
-        format!(
-            r#"[package]
-name = "{}"
-version = "0.1.0"
-edition = "2024"
+    let cef_path = default_cef_path()?;
 
-[dependencies]
-kurogane = {{ git = "https://github.com/0x48piraj/kurogane" }}
+    fs::write(
+        root.join(".cargo/config.toml"),
+        format!(
+            r#"[env]
+CEF_PATH = {{ value = "{}", force = true }}
 "#,
-            name
+            cef_path
         ),
     )?;
 
-    // main.rs
-    fs::write(
-        root.join("src/main.rs"),
-        r#"use kurogane::App;
-
-fn main() {
-    App::path("content").run_or_exit();
-}
-"#,
-    )?;
-
-    // frontend
-    fs::write(
-        root.join("content/index.html"),
-        r#"<!DOCTYPE html>
-<html>
-<head>
-  <title>Kurogane App</title>
-</head>
-<body>
-  <h1>Hello from Kurogane.</h1>
-</body>
-</html>
-"#,
-    )?;
-
-    // kurogane.toml
-    fs::write(
-        root.join("kurogane.toml"),
-        r#"[app]
-name = "MyApp"
-frontend = "content"
-dev_url = ""
-"#,
-    )?;
-
-    // .cargo/config.toml
-    let cef_path = default_cef_path()?;
-
-    let cargo_config = format!(
-        r#"[env]
-CEF_PATH = {{ value = "{}", force = true }}
-"#,
-        cef_path
-    );
-
-    fs::write(root.join(".cargo/config.toml"), cargo_config)?;
-
-    // .gitignore
-    fs::write(
-        root.join(".gitignore"),
-        r#"target/
-dist/
-.DS_Store
-"#,
-    )?;
-
-    println!("\nProject `{}` created!", name);
+    println!("\n[+] Project `{}` created using `{}` template!", name, template);
     println!("Next steps:");
     println!("  cd {}", name);
     println!("  kurogane install # one-time install");
@@ -107,8 +59,48 @@ dist/
     Ok(())
 }
 
+//
+// Extract template from embedded dir
+//
+fn extract_template(name: &str, dest: &Path) -> Result<()> {
+    let dir = TEMPLATES
+        .get_dir(name)
+        .ok_or_else(|| anyhow::anyhow!("Template '{}' not found", name))?;
+
+    copy_embedded_dir(dir, dest)
+}
+
+//
+// Copy embedded directory recursively
+//
+fn copy_embedded_dir(dir: &Dir, dest: &Path) -> Result<()> {
+    for file in dir.files() {
+        let rel_path = file.path();
+
+        let stripped = rel_path
+            .components()
+            .skip(1) // remove template root
+            .collect::<PathBuf>();
+
+        let path = dest.join(stripped);
+
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        fs::write(path, file.contents())?;
+    }
+
+    for subdir in dir.dirs() {
+        copy_embedded_dir(subdir, dest)?;
+    }
+
+    Ok(())
+}
+
 fn default_cef_path() -> Result<String> {
-    let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("No home directory"))?;
+    let home = dirs::home_dir()
+        .ok_or_else(|| anyhow::anyhow!("No home directory"))?;
 
     let path: PathBuf = home.join(".local").join("share").join("cef");
 
