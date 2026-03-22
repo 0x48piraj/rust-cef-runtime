@@ -660,7 +660,7 @@ dependencies = [
 
 [[package]]
 name = "kurogane"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "cef",
  "dirs",
@@ -671,7 +671,7 @@ dependencies = [
 
 [[package]]
 name = "kurogane-cli"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "cargo_metadata",
@@ -685,7 +685,7 @@ dependencies = [
 
 [[package]]
 name = "kurogane-tests"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "kurogane",
  "serde_json",
