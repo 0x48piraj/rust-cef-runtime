@@ -55,10 +55,9 @@ CEF_PATH = {{ value = "{}", force = true }}
         ),
     )?;
 
-    println!("\n[+] Project `{}` created using `{}` template!", name, template);
+    println!("\n[+] Project '{}' created using '{}' template!", name, template);
     println!("Next steps:");
     println!("  cd {}", name);
-    println!("  kurogane install # one-time install");
     println!("  kurogane dev");
 
     Ok(())

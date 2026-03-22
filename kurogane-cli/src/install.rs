@@ -113,11 +113,11 @@ fn print_env_instructions(root: &Path) {
         println!(r#"export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$CEF_PATH""#);
         println!("Run once:");
         println!(
-            " sudo chown root:root {}/cef_linux_x86_64/chrome-sandbox",
+            " sudo chown root:root {}/chrome-sandbox",
             root.display()
         );
         println!(
-            " sudo chmod 4755 {}/cef_linux_x86_64/chrome-sandbox",
+            " sudo chmod 4755 {}/chrome-sandbox",
             root.display()
         );
     }
