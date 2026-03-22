@@ -56,24 +56,24 @@ This project is not a replacement for Tauri or Electron.
 cargo install --git https://github.com/0x48piraj/kurogane kurogane-cli
 ```
 
-### 2. Install Chromium (one-time)
-
-```bash
-kurogane install
-```
-
-The CLI automatically downloads the compatible Chromium build required by the Rust bindings.
-
-### 3. Create a new app
+### 2. Create a new app
 
 ```bash
 kurogane init
 ```
 
-### 4. Run your app
+### 3. Install Chromium (one-time)
 
 ```bash
 cd my-app
+kurogane install
+```
+
+The CLI automatically downloads the compatible Chromium build required by the Rust bindings.
+
+### 4. Run your app
+
+```bash
 kurogane dev
 ```
 
