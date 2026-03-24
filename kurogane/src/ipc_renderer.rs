@@ -80,12 +80,8 @@ const KUROGANE_BRIDGE: &str = include_str!("../bridge/runtime.js");
 
 static PROMISE_REGISTRY: OnceLock<Mutex<PromiseRegistry>> = OnceLock::new();
 
-fn ensure_registry() {
-    PROMISE_REGISTRY.get_or_init(|| Mutex::new(PromiseRegistry::new()));
-}
-
 fn registry() -> &'static Mutex<PromiseRegistry> {
-    PROMISE_REGISTRY.get().unwrap()
+    PROMISE_REGISTRY.get_or_init(|| Mutex::new(PromiseRegistry::new()))
 }
 
 fn register_promise(ctx: V8Context, promise: V8Value) -> u32 {
@@ -156,8 +152,6 @@ wrap_render_process_handler! {
             frame: Option<&mut Frame>,
             context: Option<&mut V8Context>,
         ) {
-            ensure_registry();
-
             let context = context.unwrap();
             let frame = frame.unwrap();
 
